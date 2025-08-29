@@ -5,7 +5,7 @@ ARM7TDMI Architecture Assembler (https://iitd-plos.github.io/col718/ref/arm-inst
 
 ### Instruction Types
 
-[] Data ops
+[x] Data ops
 [] Branching
 [] Load and Store
 [] Mul / Acc

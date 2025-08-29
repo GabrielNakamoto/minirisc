@@ -9,7 +9,9 @@ References:
 Compilation = Analysis + Synthesis
 """
 from enum import Enum
-
+import os
+from simpleelf import elf_consts
+from simpleelf.elf_builder import ElfBuilder
 
 class State(Enum):
 	NONE = 0
@@ -172,16 +174,18 @@ class Parser:
 			if len(op2) == 1: # reg case
 				bits = int(token[1:]) & 0xF
 			else: # shift case
-				pass
+				bits = 0
 		elif token[0] == '#':
 			# immediate case
 			# TODO: check if rotation required
-			bits = int(token[1:]) & 0xFF
+			bits = self.parse_reg(token)
 			i = 1
 		return (bits, i)
 
 	def parse_reg(self, tk):
-		pass
+		# TODO: check if rotation required
+		bits = int(tk[1:]) & 0xFF
+		return bits
 
 	def parse(self):
 		i = 0
@@ -213,23 +217,24 @@ class Parser:
 				if token in DataOps._member_names_:
 					rn = 0
 					rd = 0
-					i = 0
+					imm = 0
 					opc = DataOps[token].value
 
 					print(bin(opc))
 					if token in ["CMP", "CMN", "TEQ", "TST"]: # no result, <opcode>{cond} Rn, <Op2>
-						assert line[2][1] == "COMMA"
-
-						rn = line[1][0]
-						op2, i = self.parse_op2(line[3:])
+						rn = self.parse_reg(line[1][0])
+						op2, imm = self.parse_op2(line[3:])
 
 					elif token in ["MOV", "MVN"]: # single operand, <opcode>{cond}{S} Rd, <Op2>
-						assert line[2][1] == "COMMA"
+						rd = self.parse_reg(line[1][0])
+						op2, imm = self.parse_op2(line[3:])
 
-						rd = line[1][0]
-						op2, i = self.parse_op2(line[3:])
+					else: # <opcode>{cond}{S} Rd, Rn, <op2>
+						rd = self.parse_reg(line[1][0])
+						rn = self.parse_reg(line[3][0])
+						op2, imm = self.parse_op2(line[5:])
 
-					word = (cond.value << 28) | (i << 25) | (opc << 21) | (s << 20) | (rn << 16) | (rd << 12) | op2
+					word = (cond.value << 28) | (imm << 25) | (opc << 21) | (s << 20) | (rn << 16) | (rd << 12) | op2
 
 					self.instructions.append(word)
 
@@ -241,17 +246,31 @@ class Parser:
 
 			# cases: directive, instruction, 
 			print(line)
-		print(self.instructions)
 
+	def __str__(self):
+		ret = ""
+		for w in self.instructions:
+			ret += '\n' + bin(w)
+		return ret
 
-source = """MOV R4, #0      ; Initialize sum (R4) to 0
-loop:
-    LDR R2, [R0]    ; Load the integer at address R0 into R2
-    ADD R4, R4, R2  ; Add the loaded integer (R2) to the sum (R4)
-    ADD R0, R0, #4  ; Move R0 to the address of the next integer (add 4 bytes)
-    SUB R1, R1, #1  ; Decrement the count of remaining integers (R1)
-    CMP R1, #0      ; Compare R1 with 0
-    BNE loop        ; If R1 is not equal to 0, branch back to 'loop'"""
+	def save(self, filename="output.elf"):
+		e = ElfBuilder(elf_consts.ELFCLASS32)
+		e.set_endianity('<')
+		e.set_machine(elf_consts.EM_ARM)
+
+		code = b''.join(w.to_bytes(4, byteorder='little', signed=False) for w in self.instructions)
+
+		print("Code len", len(code))
+
+		loadaddr = 0x10000
+		e.add_segment(loadaddr, code, elf_consts.PF_R | elf_consts.PF_X)
+		e.add_code_section(loadaddr, len(code), name='.text')
+		e.set_entry(loadaddr)
+
+		with open(filename, 'wb') as obj:
+			obj.write(e.build())
+
+source = open("input.s", "r").read()
 
 dfa = DFA()
 dfa.tokenize(source)
@@ -260,4 +279,7 @@ print(dfa)
 parser = Parser(dfa.tokens)
 parser.parse()
 
+print(parser)
+
+parser.save()
 
