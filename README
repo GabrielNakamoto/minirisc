@@ -1,1 +1,18 @@
-Aarch 32 A32 Instruction Set Assembler
+ARM7TDMI Architecture Assembler (https://iitd-plos.github.io/col718/ref/arm-instructionset.pdf)
+
+
+## Implemented:
+
+### Instruction Types
+
+[] Data ops
+[] Branching
+[] Load and Store
+[] Mul / Acc
+[] PSR Transfer?
+[] Co-Processor
+[] SWI
+[] Block Transfer
+[] SWP
+[] Halfword / Signed transfer
+
