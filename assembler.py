@@ -98,6 +98,86 @@ class DFA:
 			rep += str(tk) + "\n"
 		return rep
 
+
+class Cond(Enum):
+	EQ = 0
+	NE = 1
+	CS = 2
+	CC = 3
+	MI = 4
+	PL = 5
+	VS = 6
+	VC = 7
+	HI = 8
+	LS = 9
+	GE = 10
+	LT = 11
+	GT = 12
+	LE = 13
+	AL = 14
+
+class DataOps(Enum): # data processing
+	AND = 0
+	EOR = 1
+	SUB = 2
+	RSB = 3
+	ADD = 4
+	ADC = 5
+	SBC = 6
+	RSC = 7
+	TST = 8
+	TEQ = 9
+	CMP = 10
+	CMN = 11
+	ORR = 12
+	MOV = 13
+	BIC = 14
+	MVN = 15
+
+class MemSOps(Enum): 	# load and store (single)
+	LDR = 0
+	STR = 1
+
+class BrnchOps(Enum): 	# branch + branch w link
+	B = 0
+	BL = 1
+
+class Parser:
+	op_types = [DataOps, MemSOps, BrnchOps]
+	def __init__(self, tokens):
+		self.tokens = tokens
+
+	def get_line(self, tokens):
+		line = []
+		for i, tk in enumerate(tokens):
+			if tk[1] == "NEWLINE" or i == len(tokens)-1: return (line, i+1)
+			line.append(tk)
+
+	def parse(self):
+		i = 0
+
+		while i < len(self.tokens):
+			line, j = self.get_line(self.tokens[i:])
+			i += j
+			
+			token = line[0][0]
+
+			if token[-1] == ':':
+				print("Label")
+			else:
+				print("Instruction")
+
+				if token[-2:] in Cond._member_names_:
+					print("Condition!")
+					token = token[:-2]
+				for opt in Parser.op_types:
+					if token in opt._member_names_:
+						print(opt.__name__)
+
+			# cases: directive, instruction, 
+			print(line)
+
+
 source = """MOV R4, #0      ; Initialize sum (R4) to 0
 loop:
     LDR R2, [R0]    ; Load the integer at address R0 into R2
@@ -110,3 +190,8 @@ loop:
 dfa = DFA()
 dfa.tokenize(source)
 print(dfa)
+
+parser = Parser(dfa.tokens)
+parser.parse()
+
+
