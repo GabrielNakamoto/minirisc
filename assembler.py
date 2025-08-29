@@ -146,12 +146,42 @@ class Parser:
 	op_types = [DataOps, MemSOps, BrnchOps]
 	def __init__(self, tokens):
 		self.tokens = tokens
+		self.instructions = []
 
 	def get_line(self, tokens):
 		line = []
 		for i, tk in enumerate(tokens):
 			if tk[1] == "NEWLINE" or i == len(tokens)-1: return (line, i+1)
+			if tk[1] == "COMMENT": continue
 			line.append(tk)
+
+	def parse_op2(self, op2):
+		# https://developer.arm.com/documentation/den0013/0400/ARM-Thumb-Unified-Assembly-Language-Instructions/Data-processing-operations/Operand-2-and-the-barrel-shifter
+		"""
+		cases:
+			
+			ADD r0, r1, r2	; register
+			ADD r0, r1, r2, LSL, #3 ; register with shift
+			ADD r0, r1, #10 ; immediate
+		"""
+
+		i = 0
+		bits = 0
+		token = op2[0][0]
+		if token[0] == 'R':
+			if len(op2) == 1: # reg case
+				bits = int(token[1:]) & 0xF
+			else: # shift case
+				pass
+		elif token[0] == '#':
+			# immediate case
+			# TODO: check if rotation required
+			bits = int(token[1:]) & 0xFF
+			i = 1
+		return (bits, i)
+
+	def parse_reg(self, tk):
+		pass
 
 	def parse(self):
 		i = 0
@@ -167,15 +197,51 @@ class Parser:
 			else:
 				print("Instruction")
 
+				cond = Cond.AL
+				s = 0
+
+				if token[-1] == 'S':
+					s = 1
+					token=token[:-1]
 				if token[-2:] in Cond._member_names_:
 					print("Condition!")
+
+					cond = Cond[token[-2:]]
+					print(token[-2:], bin(cond.value))
 					token = token[:-2]
+
+				if token in DataOps._member_names_:
+					rn = 0
+					rd = 0
+					i = 0
+					opc = DataOps[token].value
+
+					print(bin(opc))
+					if token in ["CMP", "CMN", "TEQ", "TST"]: # no result, <opcode>{cond} Rn, <Op2>
+						assert line[2][1] == "COMMA"
+
+						rn = line[1][0]
+						op2, i = self.parse_op2(line[3:])
+
+					elif token in ["MOV", "MVN"]: # single operand, <opcode>{cond}{S} Rd, <Op2>
+						assert line[2][1] == "COMMA"
+
+						rd = line[1][0]
+						op2, i = self.parse_op2(line[3:])
+
+					word = (cond.value << 28) | (i << 25) | (opc << 21) | (s << 20) | (rn << 16) | (rd << 12) | op2
+
+					self.instructions.append(word)
+
+				"""
 				for opt in Parser.op_types:
 					if token in opt._member_names_:
 						print(opt.__name__)
+				"""
 
 			# cases: directive, instruction, 
 			print(line)
+		print(self.instructions)
 
 
 source = """MOV R4, #0      ; Initialize sum (R4) to 0

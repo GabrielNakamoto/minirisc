@@ -16,3 +16,7 @@ ARM7TDMI Architecture Assembler (https://iitd-plos.github.io/col718/ref/arm-inst
 [] SWP
 [] Halfword / Signed transfer
 
+### Op2
+
+[] Shift operations (LSL, LSR, ASR, ROR, RRX)
+[] Immediate Rotation Encoding
