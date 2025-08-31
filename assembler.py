@@ -6,25 +6,37 @@ import string
 import struct
 import sys
 
+def split_immediate(imm):
+	imm31_12 = (imm >> 12) & 0xFFFFF
+	imm11_0 = imm & 0xFFF
+	msb = imm11_0 >> 11
+	# handle sign extension
+	if msb: imm31_12 = (imm31_12 + 1) & 0xFFFFF 
+	print(hex(imm), hex(imm31_12), hex(imm11_0))
+	return (imm31_12, imm11_0)
+
 def branch_zero(x):
 	rs1 = parse_reg(x[1])
 	rs2 = 0x0
 	imm = parse_pc_offs(x[3])
 	base_op = x[0][0][:-1].upper()
 	func3 = BrchOps[base_op].value
-	print(imm)
+
 	return [encode_b_type(imm, rs2, rs1, func3, 0b1100011)]
 
 def li(x): # naive expansion? handles up to 32 bit numbers
 	rd = parse_reg(x[1])	
 	imm = parse_imm(x[3])
 	seq = []
-	imm11_0 = imm & 0xFFF
+
+	imm31_12, imm11_0 = split_immediate(imm)
+	addi = encode_i_type(imm11_0, 0x0, ImmOps['ADDI'].value, rd, 0b0010011)
 
 	if imm.bit_length() > 12:
-		imm31_12 = (imm >> 12) & 0xFFFFF
 		seq.append(encode_u_type(imm31_12, rd, 0b110111)) # lui
-	seq.append(encode_i_type(imm11_0, 0x0, ImmOps['ADDI'].value, rd, 0b0010011)) # addi
+		if imm11_0 > 0: seq.append(addi)
+	else:
+		seq.append(addi)
 
 	return seq
 
@@ -32,30 +44,58 @@ def la(x):
 	rd = parse_reg(x[1])
 	symbol = parse_pc_offs(x[3])
 	seq = []
-	
-	sym11_0 = symbol & 0xFFF	
-	sym31_12 = (symbol >> 12) & 0xFFFFF
-	seq.append(encode_u_type(sym31_12, rd, 0b0010111))
-	seq.append(encode_i_type(sym11_0, rd, ImmOps['ADDI'].value, rd, 0b0010011))
+
+	sym31_12, sym11_0 = split_immediate(symbol)
+	addi = encode_i_type(sym11_0, rd, ImmOps['ADDI'].value, rd, 0b0010011) # addi
+
+	if symbol.bit_length() > 12:
+		seq.append(encode_u_type(sym31_12, rd, 0b0010111)) # auipc
+		if sym11_0 > 0: seq.append(addi)
+	else:
+		seq.append(addi)
 
 	return seq
+
+def nop(x):
+	return [encode_i_type(0, 0x0, ImmOps['ADDI'].value, 0x0, 0b0010011)]
 
 def mv(x): # mv rd, rs -> addi rd, rs, 0
 	rd = parse_reg(x[1])
 	rs = parse_reg(x[3])
 	return [encode_i_type(0, rs, ImmOps['ADDI'].value, rd, 0b0010011)] # addi
 
+def neg(x):
+	rd = parse_reg(x[1])
+	rs = parse_reg(x[3])
+	return [encode_r_type(0x20, rs, 0x0, RegOps['SUB'].value, rd, 0b0110011)]
+
+def call(x):
+	offset = parse_pc_offs(x[1])
+	offs31_12, offs11_0 = split_immediate(offset)
+
+	seq = []
+	seq.append(encode_u_type(offs31_12, 0x1, 0b0010111)) # auipc
+	seq.append(encode_i_type(offs11_0, 0x1, 0x0, 0x1, 0b1100111)) # jalr
+
+	return seq
+
 class PseudOps(Enum):
 	beqz = bnez = bgez = bltz = 0
 	li = 1
 	la = 2
 	mv = 3
+	nop = 4
+	neg = 5
+	call = 6
 
 pseud_map = [
 	branch_zero,
 	li,
 	la,
-	mv
+	mv,
+	nop,
+	neg,
+	call
 ]
 
 def parse_imm(x):
@@ -156,6 +196,7 @@ def assemble(source):
 	pc = 0x0
 	for instr in token_stream:
 		token = instr[0][0]
+		if token[0] == '.': continue
 		if token[-1] == ':': symbols[token[:-1]] = pc
 		else: pc += 4
 
@@ -176,13 +217,18 @@ def assemble(source):
 			op = token.upper()
 			enc = 0
 			if op.lower() in list(PseudOps.__members__.keys()):
-				# handle multiple encodings?
-				# increment pc multiple times too
 				seq = pseud_map[PseudOps[op.lower()].value](instr)
 
 				for x in seq:
 					instructions.append((op, x))
 					pc += 4
+				# delta = len(seq) * 4
+				# resolve symbols
+				"""
+				for symbol, addr in symbols:
+					if addr > pc - delta:
+						addr += delta
+				"""
 				continue
 			elif op in RegOps._member_names_ + ['SUB'] + MulOps._member_names_: # <op> rd, rs1, rs2
 				rd = parse_reg(instr[1])

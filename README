@@ -9,7 +9,7 @@ Why?: Matmul go fast! With my assembler
 [x] Labels
 [x] Register ABI Names
 [x] RV32M Extension
-[x] Basic Pseudo-Instructions: li, la, mv, beqz, bnez, bgez, bltz
+[x] Basic Pseudo-Instructions: li, la, mv, nop, neg, call, beqz, bnez, bgez, bltz
 
 ## Todo
 
