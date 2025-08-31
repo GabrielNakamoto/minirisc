@@ -1,5 +1,8 @@
 RISC-V RV32IM Assembler (https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf)
 
+Goal: Matmul with proper functions and .word array
+Why?: Matmul go fast! With my assembler
+
 ## Features
 
 [x] RV32I Base Integer Instructions
@@ -11,6 +14,7 @@ RISC-V RV32IM Assembler (https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/no
 ## Todo
 
 [] More Pseduo-instructions
+[] Assembler directives
 [] Dissasembler / Emulator??
 
 ## Example output:
