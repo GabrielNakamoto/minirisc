@@ -1,21 +1,19 @@
-RISC-V RV32 Assembler (https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf)
+RISC-V RV32IM Assembler (https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf)
 
-## Example:
+## Features
 
-### Input
-```
-# sum = 0
-# for (int i=0; i<10; ++i) sum += 5
+[x] RV32I Base Integer Instructions
+[x] Labels
+[x] Register ABI Names
+[x] RV32M Extension
+[x] Basic Pseudo-Instructions: li, la, mv, beqz, bnez, bgez, bltz
 
-addi t1, x0, 0 # initialize sum to 0
-addi t2, x0, 0 # intiialize counter (i) to 0
-addi t3, x0, 10
-loop: 
-	addi t1, t1, 5
-	addi t2, t2, 1
-	blt t2, t3, loop
-```
-### Output
+## Todo
+
+[] More Pseduo-instructions
+[] Dissasembler / Emulator??
+
+## Example output:
 
 ```
 Source:
@@ -49,14 +47,3 @@ Instructions:
 	 BLT		 11111111110000111100110011100011
 ```
 
-## Features
-
-[x] RV32I Base Integer Instructions
-[x] Labels
-[x] Register ABI Names
-[x] RV32M Extension
-
-## Todo
-
-[] Pseduo-instructions
-[] Dissasembler / Emulator??

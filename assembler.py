@@ -6,13 +6,65 @@ import string
 import struct
 import sys
 
+def branch_zero(x):
+	rs1 = parse_reg(x[1])
+	rs2 = 0x0
+	imm = parse_pc_offs(x[3])
+	base_op = x[0][0][:-1].upper()
+	func3 = BrchOps[base_op].value
+	print(imm)
+	return [encode_b_type(imm, rs2, rs1, func3, 0b1100011)]
+
+def li(x): # naive expansion? handles up to 32 bit numbers
+	rd = parse_reg(x[1])	
+	imm = parse_imm(x[3])
+	seq = []
+	imm11_0 = imm & 0xFFF
+
+	if imm.bit_length() > 12:
+		imm31_12 = (imm >> 12) & 0xFFFFF
+		seq.append(encode_u_type(imm31_12, rd, 0b110111)) # lui
+	seq.append(encode_i_type(imm11_0, 0x0, ImmOps['ADDI'].value, rd, 0b0010011)) # addi
+
+	return seq
+
+def la(x):
+	rd = parse_reg(x[1])
+	symbol = parse_pc_offs(x[3])
+	seq = []
+	
+	sym11_0 = symbol & 0xFFF	
+	sym31_12 = (symbol >> 12) & 0xFFFFF
+	seq.append(encode_u_type(sym31_12, rd, 0b0010111))
+	seq.append(encode_i_type(sym11_0, rd, ImmOps['ADDI'].value, rd, 0b0010011))
+
+	return seq
+
+def mv(x): # mv rd, rs -> addi rd, rs, 0
+	rd = parse_reg(x[1])
+	rs = parse_reg(x[3])
+	return [encode_i_type(0, rs, ImmOps['ADDI'].value, rd, 0b0010011)] # addi
+
+class PseudOps(Enum):
+	beqz = bnez = bgez = bltz = 0
+	li = 1
+	la = 2
+	mv = 3
+
+pseud_map = [
+	branch_zero,
+	li,
+	la,
+	mv
+]
+
 def parse_imm(x):
 	return int(x[0], 16) if len(x[0]) > 1 and x[0][1].lower() == 'x' else int(x[0])
 
 def parse_reg(x):
 	return Regs[x[0]].value
 
-def parse_pc_offs(x, pc, symbols):
+def parse_pc_offs(x):
 	return symbols[x[0]] - pc if x[1] == Token.symbol else parse_imm(x)
 
 def encode_i_type(imm, rs1, func3, rd, opc):
@@ -45,6 +97,9 @@ def encode_b_type(imm, rs2, rs1, func3, opc):
 	iml = (im4_1 << 1) | im11 # imm[4:1|11]
 
 	return (imh << 25) | (rs2 << 20) | (rs1 << 15) | (func3 << 12) | (iml << 7) | opc
+
+def encode_u_type(imm, rd, opc):
+	return (imm << 12) | (rd << 7) | opc
 
 def assemble(source):
 	print("Source:\n", source)
@@ -95,7 +150,9 @@ def assemble(source):
 # (2) Parser
 
 	# label pass
+	global symbols
 	symbols = dict()
+	global pc
 	pc = 0x0
 	for instr in token_stream:
 		token = instr[0][0]
@@ -110,6 +167,7 @@ def assemble(source):
 		assert instr[0][1] == Token.symbol
 
 		if token[-1] == ':':
+			# TODO: handle inline labels ex. foo: add t1, zero, t4
 			continue
 
 		if token[0] == '.':
@@ -117,7 +175,16 @@ def assemble(source):
 		else: # op
 			op = token.upper()
 			enc = 0
-			if op in RegOps._member_names_ + ['SUB'] + MulOps._member_names_: # <op> rd, rs1, rs2
+			if op.lower() in list(PseudOps.__members__.keys()):
+				# handle multiple encodings?
+				# increment pc multiple times too
+				seq = pseud_map[PseudOps[op.lower()].value](instr)
+
+				for x in seq:
+					instructions.append((op, x))
+					pc += 4
+				continue
+			elif op in RegOps._member_names_ + ['SUB'] + MulOps._member_names_: # <op> rd, rs1, rs2
 				rd = parse_reg(instr[1])
 				rs1 = parse_reg(instr[3])
 				rs2 = parse_reg(instr[5])
@@ -127,7 +194,6 @@ def assemble(source):
 				else:
 					func3 = RegOps[op].value
 					func7 = 0x20 if op in ['SUB', 'SRA'] else 0x00
-
 				enc = encode_r_type(func7, rs2, rs1, func3, rd, 0b0110011)
 			elif op in ImmOps._member_names_ + ['SRAI']:
 				rd = parse_reg(instr[1])
@@ -160,7 +226,7 @@ def assemble(source):
 			elif op in BrchOps._member_names_: # <op> rs1, rs2, <imm|label>
 				rs1 = parse_reg(instr[1])
 				rs2 = parse_reg(instr[3])
-				imm = parse_pc_offs(instr[5], pc, symbols)
+				imm = parse_pc_offs(instr[5])
 				func3 = BrchOps[op].value
 
 				enc = encode_b_type(imm, rs2, rs1, func3, 0b1100011)
@@ -171,14 +237,14 @@ def assemble(source):
 					rs1 = parse_reg(instr[5])
 					enc = encode_i_type(imm, rs1, 0x0, rd, 0b1100111)
 				else: # label|imm, j type
-					imm = parse_pc_offs(instr[3], pc, symbols)
+					imm = parse_pc_offs(instr[3])
 					enc = encode_j_type(imm, rd, 0b1101111)
 			elif op in UimmOps._member_names_:
 				rd = parse_reg(instr[1])
 				imm = parse_imm(instr[3])
 				opc = 0b0110111	 if op == 'LUI' else 0b0010111
 
-				enc = (imm << 12) | (rd << 7) | opc
+				enc = encode_u_type(imm, rd, opc)
 			else:
 				continue
 			instructions.append((op, enc))
