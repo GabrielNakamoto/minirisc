@@ -8,33 +8,72 @@ from consts import *
 import string
 import struct
 
-def parse_imm(i):
-	return int(i, 16) if len(i) > 1 and i[1].lower() == 'x' else int(i)
+def parse_imm(x):
+	return int(x[0], 16) if len(x[0]) > 1 and x[0][1].lower() == 'x' else int(x[0])
+
+def parse_reg(x):
+	return Regs[x[0]].value
+
+def parse_pc_offs(x, pc, symbols):
+	return symbols[x[0]] - pc if x[1] == Token.symbol else parse_imm(x)
+
+def encode_i_type(imm, rs1, func3, rd, opc):
+	return (imm << 20) | (rs1 << 15) | (func3 << 12) | (rd << 7) | opc
+
+def encode_r_type(func7, rs2, rs1, func3, rd, opc):
+	return (func7 << 25) | (rs2 << 20) | (rs1 << 15) | (func3 << 12) | (rd << 7) | opc
+
+def encode_s_type(imm, rs2, rs1, func3, opc):
+	return ((imm >> 4) << 25) | (rs2 << 20) | (rs1 << 15) | (func3 << 12) | ((imm & 0x1F) << 7) | opc
+
+def encode_j_type(imm, rd, opc):
+	# lsb not stored, all shifts > by 1
+	# imm[20|10:1|11|19:12]
+	im20 = (imm >> 20) & 0x1
+	im10_1 = (imm >> 1) & 0x3FF
+	im11 = (imm >> 11) & 0x1
+	im19_12 = (imm >> 12) & 0xFF
+
+	return (im20 << 31) | (im10_1 << 21) | (im11 << 20) | (im19_12 << 12) | (rd << 7) | opc
+
+def encode_b_type(imm, rs2, rs1, func3, opc):
+	# lsb not stored, all shifts > by 1
+	im12 = (imm >> 12) & 0x1
+	im10_5 = (imm >> 5) & 0x3f
+	im11 = (imm >> 11) & 0x1
+	im4_1 = (imm >> 1) & 0xf
+
+	imh = (im12 << 6) | im10_5 # imm[12|10:5]
+	iml = (im4_1 << 1) | im11 # imm[4:1|11]
+
+	return (imh << 25) | (rs2 << 20) | (rs1 << 15) | (func3 << 12) | (iml << 7) | opc
 
 def assemble(source):
+	print("Source:\n", source)
 # (1) Lexer
 	lines = source.split('\n')[:-1]
-	token_stream = [[] for _ in range(len(lines))]
+	token_stream = []
 	for k, line in enumerate(lines):
 		# lex tokens
 		i = 0
+		tokens = []
 		while i < len(line):
 			tk = line[i]
 
 			if tk.isspace():
 				pass
 			elif tk == ',':
-				token_stream[k].append((tk, Token.comma))
+				tokens.append((tk, Token.comma))
 			elif tk == '(':
-				token_stream[k].append((tk, Token.lparen))
+				tokens.append((tk, Token.lparen))
 			elif tk == ')':
-				token_stream[k].append((tk, Token.rparen))
+				tokens.append((tk, Token.rparen))
 			elif tk.isdigit() or tk == '-':
 				token = ''
 				while i < len(line) and line[i] in '0123456789abcdefABCDEFxX-':
 					token += line[i]
 					i += 1
-				token_stream[k].append((token, Token.immediate))
+				tokens.append((token, Token.immediate))
 				continue
 			elif tk=='#':  # comment
 				break
@@ -43,12 +82,17 @@ def assemble(source):
 				while i < len(line) and not line[i] in ',() \t\n':
 					token += line[i]
 					i += 1
-				token_stream[k].append((token, Token.symbol))
+				tokens.append((token, Token.symbol))
 				continue
 			i += 1
+		if len(tokens) > 0: token_stream.append(tokens)
 	
-	for x in token_stream:
-		print(x)	
+	print("Tokens:")
+	for i, x in enumerate(token_stream):
+		print(f'\t{i}:', end='\t')
+		for tk in x:
+			print(tk[0], tk[1].name, end='\t')
+		print()
 
 # (2) Parser
 
@@ -77,94 +121,78 @@ def assemble(source):
 			op = token.upper()
 			enc = 0
 			if op in RegOps._member_names_ + ['SUB']: # <op> rd, rs1, rs2
-				rd = Regs[instr[1][0]].value
-				rs1 = Regs[instr[3][0]].value
-				rs2 = Regs[instr[5][0]].value
+				rd = parse_reg(instr[1])
+				rs1 = parse_reg(instr[3])
+				rs2 = parse_reg(instr[5])
 				func3 = RegOps[op].value
 				func7 = 0x20 if op in ['SUB', 'SRA'] else 0x00
 
-				enc = (func7 << 25) | (rs2 << 20)  | (rs1 << 15) | (func3 << 12) | (rd << 7) | 0b0110011
+				enc = encode_r_type(func7, rs2, rs1, func3, rd, 0b0110011)
 			elif op in ImmOps._member_names_ + ['SRAI']:
-				rd = Regs[instr[1][0]].value
-				rs1 = Regs[instr[3][0]].value
-				imm = parse_imm(instr[5][0])
+				rd = parse_reg(instr[1])
+				rs1 = parse_reg(instr[3])
+				imm = parse_imm(instr[5])
 				func3 = ImmOps[op].value
 
 				if op in ['SLLI', 'SRLI', 'SRAI']:
 					imm &= 0x1F
 					if op == "SRAI": imm |= 0x20 << 5
 
-				enc = (imm << 20) | (rs1 << 15) | (func3 << 12) | (rd << 7) | 0b0010011
+				enc = encode_i_type(imm, rs1, func3, rd, 0b0010011)
 			elif op in LdOps._member_names_: # <op> rd, imm(rs1)
-				rd = Regs[instr[1][0]].value
-				imm = parse_imm(instr[3][0])
-				rs1 = Regs[instr[5][0]].value
+				rd = parse_reg(instr[1])
+				imm = parse_imm(instr[3])
+				rs1 = parse_reg(instr[5])
 				func3 = LdOps[op].value
 
-				enc = (imm << 20) | (rs1 << 15) | (func3 << 12) | (rd << 7) | 0b0000011
+				enc = encode_i_type(imm, rs1, func3, rd, 0b0000011)
 			elif op in StrOps._member_names_: # <op> rs2, imm(rs1)
-				rs2 = Regs[instr[1][0]].value
-				imm = parse_imm(instr[3][0])
-				rs1 = Regs[instr[5][0]].value
+				rs2 = parse_reg(instr[1])
+				imm = parse_imm(instr[3])
+				rs1 = parse_reg(instr[5])
 				func3 = StrOps[op].value
 
-				im1 = imm & 0xF
-				im2 = imm >> 4
-
-				enc = (im2 << 25) | (rs2 << 20) | (rs1 << 15) | (func3 << 12) | (im1 << 7) | 0b0100011
+				enc = encode_s_type(imm, rs2, rs1, func3, 0b0100011)
 			elif op in EnvOps._member_names_ + ['EBREAK']:
-				func3 = 0x0
 				imm = 0x0 if op == 'ECALL' else 0x1
-				rd = 0
-				rs1 = 0
-
-				enc = (imm << 20) | (rs1 << 15) | (func3 << 12) | (rd << 7) | 0b1110011
+				enc = encode_i_type(imm, 0, 0x0, 0, 0b1110011)
 			elif op in BrchOps._member_names_: # <op> rs1, rs2, <imm|label>
-				rs1 = Regs[instr[1][0]].value
-				rs2 = Regs[instr[3][0]].value
-				imm = symbols[instr[5][0]] - pc if instr[5][1] == Token.symbol else int(instr[5][0])
+				rs1 = parse_reg(instr[1])
+				rs2 = parse_reg(instr[3])
+				imm = parse_pc_offs(instr[5], pc, symbols)
 				func3 = BrchOps[op].value
 
-				im1 = (imm >> 5) & 0x3f
-				im1 |= ((imm >> 12) & 0x1) << 6
-
-				im2 = (imm & 0xf) << 1
-				im2 |= (imm >> 11) & 0x1
-
-				enc = (im1 << 25) | (rs2 << 20) | (rs1 << 15) | (func3 << 12) | (im2 << 7) | 0b1100011
+				enc = encode_b_type(imm, rs2, rs1, func3, 0b1100011)
 			elif op in JmpOps._member_names_:
-				rd = Regs[instr[1][0]].value
+				rd = parse_reg(instr[1])
 				if op == 'JALR': # imm(reg), i type
-					imm = parse_imm(instr[3][0])
-					rs1 = Regs[instr[5][0]].value
-
-					enc = (imm << 20) | (rs1 << 15) | (0x0 << 12) | (rd << 7) | 0b1100111
+					imm = parse_imm(instr[3])
+					rs1 = parse_reg(instr[5])
+					enc = encode_i_type(imm, rs1, 0x0, rd, 0b1100111)
 				else: # label|imm, j type
-					imm = symbols[instr[3][0]] - pc if instr[3][1] == Token.symbol else int(instr[3][0])
-					im1 = (imm >> 20) & 0x1
-					im2 = imm & 0x3FF
-					im3 = (imm >> 11) & 0x1
-					im4 = (imm >> 12) & 0xFF
-
-					enc = (im1 << 31) | (im2 << 21) | (im3 << 20) | (im4 << 12) | (rd << 7) | 0b1101111	
+					imm = parse_pc_offs(instr[3], pc, symbols)
+					enc = encode_j_type(imm, rd, 0b1101111)
 			elif op in UimmOps._member_names_:
-				rd = Regs[instr[1][0]].value	
-				imm = parse_imm(instr[3][0])
+				rd = parse_reg(instr[1])
+				imm = parse_imm(instr[3])
 				opc = 0b0110111	 if op == 'LUI' else 0b0010111
 
 				enc = (imm << 12) | (rd << 7) | opc
 			else:
 				continue
-			instructions.append(enc)
+			instructions.append((op, enc))
 
-	print("Symbols:", symbols)
-	print("Instructions:", instructions)
+	print("Symbols:")
+	for s, x in symbols.items():
+		print('\t', s, f'<{hex(x)}>')
+	print("Instructions:")
+	for i in instructions:
+		print('\t', f'{i[0]}\t\t', bin(i[1])[2:].zfill(32))
 
 	with open('output.bin', 'wb') as f:
 		for x in instructions:
-			f.write(struct.pack("I", x))
+			f.write(struct.pack("I", x[1]))
 	
-
 source = open('input.s', 'r').read()
 assemble(source)
 
