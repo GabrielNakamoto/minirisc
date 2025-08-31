@@ -16,24 +16,30 @@ def assemble(source):
 			tk = line[i]
 
 			if tk.isspace():
-				i += 1
+				pass
 			elif tk == ',':
 				token_stream[k].append((tk, Token.comma))
-				i += 1
+			elif tk == '(':
+				token_stream[k].append((tk, Token.lparen))
+			elif tk == ')':
+				token_stream[k].append((tk, Token.rparen))
 			elif tk.isdigit() or tk == '-':
 				token = ''
 				while i < len(line) and line[i] in '0123456789abcdefABCDEFxX-':
 					token += line[i]
 					i += 1
 				token_stream[k].append((token, Token.immediate))
+				continue
 			elif tk=='#':  # comment
 				break
 			else:
 				token = ''
-				while i < len(line) and (not line[i].isspace()) and line[i] != ',':
+				while i < len(line) and not line[i] in ',() \t\n':
 					token += line[i]
 					i += 1
 				token_stream[k].append((token, Token.symbol))
+				continue
+			i += 1
 	
 	for x in token_stream:
 		print(x)	
@@ -63,6 +69,7 @@ def assemble(source):
 			pass
 		else: # op
 			op = token.upper()
+			enc = 0
 			if op in RegOps._member_names_ + ['SUB']: # <op> rd, rs1, rs2
 				rd = Regs[instr[1][0]].value
 				rs1 = Regs[instr[3][0]].value
@@ -71,7 +78,6 @@ def assemble(source):
 				func7 = 0x20 if op in ['SUB', 'SRA'] else 0x00
 
 				enc = (func7 << 25) | (rs2 << 20)  | (rs1 << 15) | (func3 << 12) | (rd << 7) | 0b0110011
-				instructions.append(enc)
 			elif op in ImmOps._member_names_ + ['SRAI']:
 				rd = Regs[instr[1][0]].value
 				rs1 = Regs[instr[3][0]].value
@@ -83,7 +89,26 @@ def assemble(source):
 					if op == "SRAI": imm |= 0x20 << 5
 
 				enc = (imm << 20) | (rs1 << 15) | (func3 << 12) | (rd << 7) | 0b0010011
-				instructions.append(enc)
+			elif op in LdOps._member_names_: # <op> rd, imm(rs1)
+				rd = Regs[instr[1][0]].value
+				imm = int(instr[3][0])
+				rs1 = Regs[instr[5][0]].value
+				func3 = LdOps[op].value
+
+				enc = (imm << 20) | (rs1 << 15) | (func3 << 12) | (rd << 7) | 0b0000011
+			elif op in StrOps._member_names_: # <op> rs2, imm(rs1)
+				rs2 = 	Regs[instr[1][0]].value
+				imm = int(instr[3][0])
+				rs1 = Regs[instr[5][0]].value
+				func3 = StrOps[op].value
+
+				im1 = imm & 0xF
+				im2 = imm >> 4
+
+				enc = (im2 << 25) | (rs1 << 15) | (func3 << 12) | (im1 << 7) | 0b0100011
+			else:
+				continue
+			instructions.append(enc)
 
 	print("Symbols:", symbols)
 	print("Instructions:", instructions)
