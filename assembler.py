@@ -98,7 +98,7 @@ def assemble(source):
 
 	# label pass
 	symbols = dict()
-	pc = 0x10000
+	pc = 0x0
 	for instr in token_stream:
 		token = instr[0][0]
 		if token[-1] == ':': symbols[token[:-1]] = pc
@@ -106,7 +106,7 @@ def assemble(source):
 
 	# instruction pass
 	instructions = []
-	pc = 0x10000
+	pc = 0x0
 	for instr in token_stream:
 		token = instr[0][0]
 		assert instr[0][1] == Token.symbol
@@ -114,8 +114,7 @@ def assemble(source):
 		if token[-1] == ':':
 			continue
 
-		pc += 4
-		if token[0] == '.': # directive
+		if token[0] == '.':
 			pass
 		else: # op
 			op = token.upper()
@@ -181,6 +180,7 @@ def assemble(source):
 			else:
 				continue
 			instructions.append((op, enc))
+			pc += 4
 
 	print("Symbols:")
 	for s, x in symbols.items():
@@ -195,4 +195,3 @@ def assemble(source):
 	
 source = open('input.s', 'r').read()
 assemble(source)
-
