@@ -3,6 +3,7 @@
 from enum import Enum
 from consts import *
 import string
+import struct
 
 def assemble(source):
 # (1) Lexer
@@ -62,7 +63,7 @@ def assemble(source):
 			pass
 		else: # op
 			op = token.upper()
-			if op in RegOps._member_names_: # <op> rd, rs1, rs2
+			if op in RegOps._member_names_ + ['SUB']: # <op> rd, rs1, rs2
 				rd = Regs[instr[1][0]].value
 				rs1 = Regs[instr[3][0]].value
 				rs2 = Regs[instr[5][0]].value
@@ -70,10 +71,27 @@ def assemble(source):
 				func7 = 0x20 if op in ['SUB', 'SRA'] else 0x00
 
 				enc = (func7 << 25) | (rs2 << 20)  | (rs1 << 15) | (func3 << 12) | (rd << 7) | 0b0110011
-				instructions.append(bin(enc))
+				instructions.append(enc)
+			elif op in ImmOps._member_names_ + ['SRAI']:
+				rd = Regs[instr[1][0]].value
+				rs1 = Regs[instr[3][0]].value
+				imm = int(instr[5][0])
+				func3 = ImmOps[op].value
+
+				if op in ['SLLI', 'SRLI', 'SRAI']:
+					imm &= 0x1F
+					if op == "SRAI": imm |= 0x20 << 5
+
+				enc = (imm << 20) | (rs1 << 15) | (func3 << 12) | (rd << 7) | 0b0010011
+				instructions.append(enc)
 
 	print("Symbols:", symbols)
 	print("Instructions:", instructions)
+
+	with open('output.bin', 'wb') as f:
+		for x in instructions:
+			f.write(struct.pack("i", x))
+	
 
 source = open('input.s', 'r').read()
 assemble(source)
