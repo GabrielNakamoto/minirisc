@@ -1,12 +1,10 @@
-# tiny naive assembler?
-
-
-# TODO: fix branch and jal immediate encodings?
+# Mini RISC-V 32  Assembler, 2025 <gabriel@nakamoto.ca>
 
 from enum import Enum
 from consts import *
 import string
 import struct
+import sys
 
 def parse_imm(x):
 	return int(x[0], 16) if len(x[0]) > 1 and x[0][1].lower() == 'x' else int(x[0])
@@ -119,12 +117,16 @@ def assemble(source):
 		else: # op
 			op = token.upper()
 			enc = 0
-			if op in RegOps._member_names_ + ['SUB']: # <op> rd, rs1, rs2
+			if op in RegOps._member_names_ + ['SUB'] + MulOps._member_names_: # <op> rd, rs1, rs2
 				rd = parse_reg(instr[1])
 				rs1 = parse_reg(instr[3])
 				rs2 = parse_reg(instr[5])
-				func3 = RegOps[op].value
-				func7 = 0x20 if op in ['SUB', 'SRA'] else 0x00
+				if op in MulOps._member_names_:
+					func3 = MulOps[op].value
+					func7 = 0x01
+				else:
+					func3 = RegOps[op].value
+					func7 = 0x20 if op in ['SUB', 'SRA'] else 0x00
 
 				enc = encode_r_type(func7, rs2, rs1, func3, rd, 0b0110011)
 			elif op in ImmOps._member_names_ + ['SRAI']:
@@ -193,5 +195,5 @@ def assemble(source):
 		for x in instructions:
 			f.write(struct.pack("I", x[1]))
 	
-source = open('input.s', 'r').read()
+source = open(sys.argv[1], 'r').read()
 assemble(source)

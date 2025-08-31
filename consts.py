@@ -3,7 +3,18 @@ from enum import Enum
 
 # https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf
 
-# ----- Operations -----
+# ----- Extensions -----
+class MulOps(Enum):
+	MUL = 0x0
+	MULH = 0x1
+	MULSU = 0x2
+	MULU = 0x3
+	DIV = 0x4
+	DIVU = 0x5
+	REM = 0x6
+	REMU = 0x7
+
+# ----- Base Operations -----
 class RegOps(Enum):
 	ADD = SUB = 0x0
 	XOR = 0x4

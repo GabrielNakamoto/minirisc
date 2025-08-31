@@ -54,9 +54,9 @@ Instructions:
 [x] RV32I Base Integer Instructions
 [x] Labels
 [x] Register ABI Names
+[x] RV32M Extension
 
 ## Todo
 
 [] Pseduo-instructions
-[] RV32M Extension
 [] Dissasembler / Emulator??
