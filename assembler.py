@@ -47,11 +47,11 @@ def assemble(source):
 # (2) Parser
 
 	# label pass
-	symbols = []
+	symbols = dict()
 	pc = 0x10000
 	for instr in token_stream:
 		token = instr[0][0]
-		if token[-1] == ':': symbols.append((token[:-1], pc))
+		if token[-1] == ':': symbols[token[:-1]] = pc
 		else: pc += 4
 
 	# instruction pass
@@ -97,7 +97,7 @@ def assemble(source):
 
 				enc = (imm << 20) | (rs1 << 15) | (func3 << 12) | (rd << 7) | 0b0000011
 			elif op in StrOps._member_names_: # <op> rs2, imm(rs1)
-				rs2 = 	Regs[instr[1][0]].value
+				rs2 = Regs[instr[1][0]].value
 				imm = int(instr[3][0])
 				rs1 = Regs[instr[5][0]].value
 				func3 = StrOps[op].value
@@ -105,9 +105,23 @@ def assemble(source):
 				im1 = imm & 0xF
 				im2 = imm >> 4
 
-				enc = (im2 << 25) | (rs1 << 15) | (func3 << 12) | (im1 << 7) | 0b0100011
+				enc = (im2 << 25) | (rs2 << 20) | (rs1 << 15) | (func3 << 12) | (im1 << 7) | 0b0100011
 			else:
 				continue
+			"""
+			elif op in BrchOps._member_names_: # <op> rs1, rs2, <imm|label>
+				rs1 = Regs[instr[1][0]].value
+				rs2 = Regs[instr[3][0]].value
+				imm = symbols[instr[5][0]] if instr[5][1] == Token.symbol else int(instr[5][0])
+				func3 = BrchOps[op].value
+
+				# im1 = (imm & (1 << 12)) & ((imm >> 5) & 0x1F)
+				# im2 = ((imm & 0x1F) << 1) & (imm >> 11)
+				im1 = 0
+				im2 = 0
+
+				enc = (im1 << 25) | (rs2 << 20) | (rs1 << 15) | (func3 << 12) | (im2 << 7) | 0b1100011
+			"""
 			instructions.append(enc)
 
 	print("Symbols:", symbols)

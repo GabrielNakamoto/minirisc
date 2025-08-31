@@ -60,6 +60,8 @@ class Token(Enum):
 	symbol = 9
 	comma = 1
 	immediate = 2
+	lparen = 3
+	rparen = 4
 
 # ----- Register mnemonics ------
 class Regs(Enum):
