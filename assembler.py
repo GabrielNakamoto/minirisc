@@ -16,6 +16,27 @@ import sys
 
 """
 
+# Easy, if its an upper operation and it gets a symbol instead
+# of an immediate it extracts the upper part
+
+def expand_rrx(op, r1, r2, i):
+	return [
+		(op, Token.symbol),
+		(r1, Token.symbol),
+		(',', Token.comma),
+		(r2, Token.symbol),
+		(',', Token.comma),
+		(i, Token.immediate if not i[0].isalpha() else Token.symbol)
+	]
+
+def expand_ri(op, r1, i):
+	return [
+		(op, Token.symbol),
+		(r1, Token.symbol),
+		(',', Token.comma),
+		(i, Token.immediate if not i[0].isalpha() else Token.symbol)
+	]
+
 def split_immediate(imm):
 	imm31_12 = (imm >> 12) & 0xFFFFF
 	imm11_0 = imm & 0xFFF
@@ -26,11 +47,11 @@ def split_immediate(imm):
 	return (imm31_12, imm11_0)
 
 def branch_zero(x): # <op> rs1, rs2, imm
-	comma = (',', Token.comma)
-	rs1 = x[1]
-	rs2 = x[3]
-	base_op = (x[0][0][:-1].lower(), Token.symbol)
-	return [[base_op, rs1, comma, ('x0', Token.symbol), comma, rs2]]
+	rs1 = x[1][0]
+	imm = x[3][0]
+	base_op = x[0][0][:-1].lower()
+
+	return [expand_rrx(base_op, rs1, 'x0', imm)]
 
 def li(x): # naive expansion? handles up to 32 bit numbers
 	seq = []
@@ -39,8 +60,8 @@ def li(x): # naive expansion? handles up to 32 bit numbers
 	imm = parse_imm(x[3])
 	imm31_12, imm11_0 = split_immediate(imm)
 
-	addi = [("addi", Token.symbol), rd, comma, ('x0', Token.symbol), comma, (hex(imm11_0), Token.immediate)]
-	lui = [("lui", Token.symbol), rd, comma, (hex(imm31_12), Token.immediate)]
+	addi = expand_rrx("addi", rd[0], 'x0', hex(imm11_0)) 
+	lui = expand_ri("lui", rd[0], hex(imm31_12))
 
 	if imm.bit_length() > 12:
 		seq.append(lui)
@@ -50,41 +71,40 @@ def li(x): # naive expansion? handles up to 32 bit numbers
 
 	return seq
 
-"""
 def la(x):
-	rd = parse_reg(x[1])
-	symbol = parse_pc_offs(x[3])
-	seq = []
+	rd = x[1][0]
+	symbol = x[3][0]
 
-	sym31_12, sym11_0 = split_immediate(symbol)
-	addi = encode_i_type(sym11_0, rd, ImmOps['ADDI'].value, rd, 0b0010011) # addi
+	addi = expand_rrx("addi", rd, rd, symbol)
+	auipc = expand_ri("auipc", rd, symbol)
 
-	if symbol.bit_length() > 12:
-		seq.append(encode_u_type(sym31_12, rd, 0b0010111)) # auipc
-		if sym11_0 > 0: seq.append(addi)
-	else:
-		seq.append(addi)
-
-	return seq
+	return [addi, auipc]
 
 def nop(x):
-	return [encode_i_type(0, 0x0, ImmOps['ADDI'].value, 0x0, 0b0010011)]
+	return [expand_rrx("addi", 'x0', 'x0', '0x0')]
 
-def mv(x): # mv rd, rs -> addi rd, rs, 0
-	rd = parse_reg(x[1])
-	rs = parse_reg(x[3])
-	return [encode_i_type(0, rs, ImmOps['ADDI'].value, rd, 0b0010011)] # addi
+def mv(x):
+	rd = x[1][0]
+	rs = x[3][0]
+	return [expand_rrx("addi", rd, rs, '0x0')]
 
 def neg(x):
-	rd = parse_reg(x[1])
-	rs = parse_reg(x[3])
-	return [encode_r_type(0x20, rs, 0x0, RegOps['SUB'].value, rd, 0b0110011)]
+	rd = x[1][0]
+	rs = x[3][0]
+	return [expand_rrx("sub", rd, 'x0', rs)]
+
+"""
+How do I calculate runtime offset??
 
 def call(x):
-	offset = parse_pc_offs(x[1])
-	offs31_12, offs11_0 = split_immediate(offset)
+	offs31_12 = x[1][0]
+	offs11_0 = x[1][0]
+
+	if x[1][1] == Token.immediate:
+		offs31_12, offs11_0 = split_immediate(parse_imm(x[1]))
 
 	seq = []
+	auipc = expand_ri("auipc", 0x1, 
 	seq.append(encode_u_type(offs31_12, 0x1, 0b0010111)) # auipc
 	seq.append(encode_i_type(offs11_0, 0x1, 0x0, 0x1, 0b1100111)) # jalr
 
@@ -94,27 +114,25 @@ def call(x):
 class PseudOps(Enum):
 	beqz = bnez = bgez = bltz = 0
 	li = 1
-	"""
 	la = 2
 	mv = 3
 	nop = 4
 	neg = 5
-	call = 6
-	"""
+#	call = 6
 
 pseud_map = [
 	branch_zero,
 	li,
-	"""
 	la,
 	mv,
 	nop,
 	neg,
-	call
-	"""
+#	call
 ]
 
 def parse_imm(x):
+	if x[1] == Token.symbol: # extract symbol address
+		return symbols[x[0]]
 	return int(x[0], 16) if len(x[0]) > 1 and x[0][1].lower() == 'x' else int(x[0])
 
 def parse_reg(x):
@@ -214,27 +232,31 @@ def assemble(source):
 		token = instr[0][0]
 		if token[0] == '.': continue
 		if token[-1] == ':': symbols[token[:-1]] = pc
+			
 		else: pc += 4
 
 	# (b) expansion pass
 	pc = 0x0
+	print("Expansion:")
 	for i, line in enumerate(token_stream):
 		token = line[0][0]
-		if token[0] == '.': continue
+		if token[0] == '.' or token[-1] == ':': continue
 		if token.lower() not in list(PseudOps.__members__.keys()):
-			pc += 4
+			print('\t<' + hex(pc) + '>', '\t', token)
 		else:
 			token_stream.pop(i)
 			idx = PseudOps[token.lower()].value
 			expansion = pseud_map[idx](line)
 			for j, x in enumerate(expansion):
 				token_stream.insert(i+j, x)
-				pc += 4
+
+			print(f'\t<{hex(pc)}>', '\t', token, '=>', [x[0][0] for x in expansion])
 			delta = len(expansion) * 4
 			for symbol, addr in symbols.items():
-				if addr > pc - delta:
-					print("Resolving:", symbol, 'Delta:', hex(delta))
-					symbols[symbol] = addr+delta-4
+				if addr > pc:
+					print("\t\tResolving:", symbol, f'{hex(addr)} -> {hex(addr+delta-4)}')
+					symbols[symbol] = addr + delta - 4
+		pc += 4
 
 	# (c) encoding pass
 	instructions = []
@@ -309,7 +331,9 @@ def assemble(source):
 					enc = encode_j_type(imm, rd, 0b1101111)
 			elif op in UimmOps._member_names_:
 				rd = parse_reg(instr[1])
-				imm = parse_imm(instr[3])
+				
+				# handle symbol instead of immediate for pseudo expansions?
+				imm = parse_imm(instr[3]) if instr[3][1] == Token.immediate else (symbols[instr[3][0]] >> 12)
 				opc = 0b0110111	 if op == 'LUI' else 0b0010111
 
 				enc = encode_u_type(imm, rd, opc)
