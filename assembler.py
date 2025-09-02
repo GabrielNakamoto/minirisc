@@ -24,10 +24,15 @@ NO Instead Ill just make my assembler simpler to start
 and do 0 pseudo instruction optimizations, no variable
 length expansions based on bit length, that way I can
 know all symbol addresses in advance.
-"""
 
-# Easy, if its an upper operation and it gets a symbol instead
-# of an immediate it extracts the upper part
+
+TODO: Correct branch and jump syntax, what are the valid offset types?:
+
+imm == symbol
+
+Valid mnemonic for jalr, load and store operations:
+	imm(rs) == rs, imm
+"""
 
 def expand_rrx(op, r1, r2, i):
 	return [
@@ -36,7 +41,7 @@ def expand_rrx(op, r1, r2, i):
 		(',', Token.comma),
 		(r2, Token.symbol),
 		(',', Token.comma),
-		(i, Token.immediate if not i[0].isalpha() else Token.symbol)
+		(i, Token.immediate)
 	]
 
 def expand_ri(op, r1, i):
@@ -44,7 +49,18 @@ def expand_ri(op, r1, i):
 		(op, Token.symbol),
 		(r1, Token.symbol),
 		(',', Token.comma),
-		(i, Token.immediate if not i[0].isalpha() else Token.symbol)
+		(i, Token.immediate)
+	]
+
+def expand_rrsi(op, rd, rs, i):
+	return [
+		(op, Token.symbol),
+		(rd, Token.symbol),
+		(',', Token.comma),
+		(i, Token.immediate),
+		('(', Token.lparen),
+		(rs, Token.symbol),
+		(')', Token.rparen)
 	]
 
 def split_immediate(imm):
@@ -78,10 +94,11 @@ def li(x): # naive expansion? handles up to 32 bit numbers
 
 def la(x):
 	rd = x[1][0]
-	symbol = x[3][0]
+	addr = symbols[x[3][0]]
+	addr_h, addr_l = parse_immediate(addr)
 
-	addi = expand_rrx("addi", rd, rd, symbol)
-	auipc = expand_ri("auipc", rd, symbol)
+	addi = expand_rrx("addi", rd, rd, addr_l)
+	auipc = expand_ri("auipc", rd, addr_h)
 
 	return [auipc, addi]
 
@@ -105,7 +122,7 @@ def call(x):
 	offs_h, offs_l = split_immediate(offset)
 
 	auipc = expand_ri("auipc", 'x1', hex(offs_h)) # store upper part of target address in x1
-	jalr = expand_rrx("jalr", 'x1', 'x1', hex(offs_l)) # jump to upper part + lower part of address
+	jalr = expand_rrsi("jalr", 'x1', 'x1', hex(offs_l)) # jump to upper part + lower part of address
 
 	return [auipc, jalr]
 
@@ -129,9 +146,14 @@ pseud_map = [ # (worst case # of ops, expansion func)
 ]
 
 def parse_imm(x):
-	if x[1] == Token.symbol: # extract symbol address
-		return parse_pc_offs(x)
 	return int(x[0], 16) if len(x[0]) > 1 and x[0][1].lower() == 'x' else int(x[0])
+
+def parse_rsi(x): 
+	# rs, imm | imm(rs)
+	# Only allow canonical: imm(rs)
+	imm = parse_imm(x[0])
+	rs = parse_reg(x[2])
+	return (rs, imm)
 
 def parse_reg(x):
 	return Regs[x[0]].value
@@ -307,15 +329,13 @@ def encode(token_stream, filename='output.bin'):
 				enc = encode_i_type(imm, rs1, func3, rd, 0b0010011)
 			elif op in LdOps._member_names_: # <op> rd, imm(rs1)
 				rd = parse_reg(instr[1])
-				imm = parse_imm(instr[3])
-				rs1 = parse_reg(instr[5])
+				rs1, imm = parse_rsi(instr[3:])
 				func3 = LdOps[op].value
 
 				enc = encode_i_type(imm, rs1, func3, rd, 0b0000011)
 			elif op in StrOps._member_names_: # <op> rs2, imm(rs1)
 				rs2 = parse_reg(instr[1])
-				imm = parse_imm(instr[3])
-				rs1 = parse_reg(instr[5])
+				rs1, imm = parse_rsi(instr[3:])
 				func3 = StrOps[op].value
 
 				enc = encode_s_type(imm, rs2, rs1, func3, 0b0100011)
@@ -331,11 +351,9 @@ def encode(token_stream, filename='output.bin'):
 				enc = encode_b_type(imm, rs2, rs1, func3, 0b1100011)
 			elif op in JmpOps._member_names_:
 				rd = parse_reg(instr[1])
-				if op == 'JALR': # imm(reg), i type
-					# jalr rd, rs, imm
-					rs = parse_reg(instr[3])
-					imm = parse_imm(instr[5]) & 0xFFF
-					print("Jump:", hex(imm))
+				if op == 'JALR': # i type
+					# jalr rd, rs, imm or jalr rd, imm(rs)
+					rs, imm = parse_rsi(instr[3:])
 					enc = encode_i_type(imm, rs, 0x0, rd, 0b1100111)
 				else: # label|imm, j type
 					imm = parse_pc_offs(instr[3])
