@@ -3,6 +3,17 @@ RISC-V RV32IM Assembler (https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/no
 Goal: Matmul with proper functions and .word array
 Why?: Matmul go fast! With my assembler
 
+## How
+
+* Lex input into tokens
+* 3 pass pre-processing
+
+	(1) Fill symbol table
+	(2) Resolve symbol addresses given constant worst case pseudo expansion lengths
+	(3) Expand pseudo instructions into token arrays
+
+* Final parse + machine code generation pass
+
 ## Features
 
 [x] RV32I Base Integer Instructions
