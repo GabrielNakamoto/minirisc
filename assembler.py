@@ -14,6 +14,16 @@ import sys
 (2) Expand pseudo instructions into token arrays
 (3) Generate machine code
 
+
+Do 2 expansion passes?
+1 to reserve space for worst case expansions,
+2nd to expand based on resolved symbols
+
+
+NO Instead Ill just make my assembler simpler to start
+and do 0 pseudo instruction optimizations, no variable
+length expansions based on bit length, that way I can
+know all symbol addresses in advance.
 """
 
 # Easy, if its an upper operation and it gets a symbol instead
@@ -54,22 +64,17 @@ def branch_zero(x): # <op> rs1, rs2, imm
 	return [expand_rrx(base_op, rs1, 'x0', imm)]
 
 def li(x): # naive expansion? handles up to 32 bit numbers
-	seq = []
+	# seq = []
 	rd = x[1]
-	comma = (',', Token.comma)
+	# comma = (',', Token.comma)
 	imm = parse_imm(x[3])
 	imm31_12, imm11_0 = split_immediate(imm)
 
 	addi = expand_rrx("addi", rd[0], 'x0', hex(imm11_0)) 
 	lui = expand_ri("lui", rd[0], hex(imm31_12))
 
-	if imm.bit_length() > 12:
-		seq.append(lui)
-		if imm11_0 > 0: seq.append(addi)
-	else:
-		seq.append(addi)
-
-	return seq
+	# return seq
+	return [lui, addi]
 
 def la(x):
 	rd = x[1][0]
@@ -78,7 +83,7 @@ def la(x):
 	addi = expand_rrx("addi", rd, rd, symbol)
 	auipc = expand_ri("auipc", rd, symbol)
 
-	return [addi, auipc]
+	return [auipc, addi]
 
 def nop(x):
 	return [expand_rrx("addi", 'x0', 'x0', '0x0')]
@@ -93,23 +98,16 @@ def neg(x):
 	rs = x[3][0]
 	return [expand_rrx("sub", rd, 'x0', rs)]
 
-"""
-How do I calculate runtime offset??
-
 def call(x):
-	offs31_12 = x[1][0]
-	offs11_0 = x[1][0]
+	# if < 12 bit offset only use jal
+	print(hex(pc), x[1][0], hex(symbols[x[1][0]]))
+	offset = parse_pc_offs(x[1])
+	offs_h, offs_l = split_immediate(offset)
 
-	if x[1][1] == Token.immediate:
-		offs31_12, offs11_0 = split_immediate(parse_imm(x[1]))
+	auipc = expand_ri("auipc", 'x1', hex(offs_h)) # store upper part of target address in x1
+	jalr = expand_rrx("jalr", 'x1', 'x1', hex(offs_l)) # jump to upper part + lower part of address
 
-	seq = []
-	auipc = expand_ri("auipc", 0x1, 
-	seq.append(encode_u_type(offs31_12, 0x1, 0b0010111)) # auipc
-	seq.append(encode_i_type(offs11_0, 0x1, 0x0, 0x1, 0b1100111)) # jalr
-
-	return seq
-"""
+	return [auipc, jalr]
 
 class PseudOps(Enum):
 	beqz = bnez = bgez = bltz = 0
@@ -118,27 +116,29 @@ class PseudOps(Enum):
 	mv = 3
 	nop = 4
 	neg = 5
-#	call = 6
+	call = 6
 
-pseud_map = [
-	branch_zero,
-	li,
-	la,
-	mv,
-	nop,
-	neg,
-#	call
+pseud_map = [ # (worst case # of ops, expansion func)
+	(1, branch_zero),
+	(2, li),
+	(2, la),
+	(1, mv),
+	(1, nop),
+	(1, neg),
+	(2, call)
 ]
 
 def parse_imm(x):
 	if x[1] == Token.symbol: # extract symbol address
-		return symbols[x[0]]
+		return parse_pc_offs(x)
 	return int(x[0], 16) if len(x[0]) > 1 and x[0][1].lower() == 'x' else int(x[0])
 
 def parse_reg(x):
 	return Regs[x[0]].value
 
 def parse_pc_offs(x):
+	if x[1] == Token.symbol:
+		print(f"\t<{hex(pc)}> Offset: {symbols[x[0]]-pc}")
 	return symbols[x[0]] - pc if x[1] == Token.symbol else parse_imm(x)
 
 def encode_i_type(imm, rs1, func3, rd, opc):
@@ -175,9 +175,7 @@ def encode_b_type(imm, rs2, rs1, func3, opc):
 def encode_u_type(imm, rd, opc):
 	return (imm << 12) | (rd << 7) | opc
 
-def assemble(source):
-	print("Source:\n", source)
-# (1) Lexer
+def lex(source): # => token stream
 	lines = source.split('\n')[:-1]
 	token_stream = []
 	for k, line in enumerate(lines):
@@ -221,21 +219,36 @@ def assemble(source):
 			print(tk[0], tk[1].name, end='\t')
 		print()
 
-# (2) Parser
+	return token_stream
 
-	# (a) label pass
-	global symbols
-	symbols = dict()
+def label_pass(token_stream):
 	global pc
 	pc = 0x0
-	for instr in token_stream:
+	for i, instr in enumerate(token_stream):
 		token = instr[0][0]
 		if token[0] == '.': continue
-		if token[-1] == ':': symbols[token[:-1]] = pc
-			
+		if token[-1] == ':':
+			symbols[token[:-1]] = pc
 		else: pc += 4
 
-	# (b) expansion pass
+def resolve_pass(token_stream):
+	global pc
+	pc = 0x0
+	for i, instr in enumerate(token_stream):
+		token = instr[0][0]
+		if token[0] == '.' or token[-1] == ':': continue
+		op = token.lower()
+		if op in list(PseudOps.__members__.keys()):
+			exp_len = pseud_map[PseudOps[op].value][0]
+			delta = (exp_len - 1) * 4
+			for symbol, addr in symbols.items():
+				if addr > pc:
+					print("\t\tResolving:", symbol, f'{hex(addr)} -> {hex(addr+delta-4)}')
+					symbols[symbol] = addr+delta
+		pc += 4
+
+def expansion_pass(token_stream):
+	global pc
 	pc = 0x0
 	print("Expansion:")
 	for i, line in enumerate(token_stream):
@@ -246,19 +259,14 @@ def assemble(source):
 		else:
 			token_stream.pop(i)
 			idx = PseudOps[token.lower()].value
-			expansion = pseud_map[idx](line)
+			expansion = pseud_map[idx][1](line)
 			for j, x in enumerate(expansion):
 				token_stream.insert(i+j, x)
 
 			print(f'\t<{hex(pc)}>', '\t', token, '=>', [x[0][0] for x in expansion])
-			delta = len(expansion) * 4
-			for symbol, addr in symbols.items():
-				if addr > pc:
-					print("\t\tResolving:", symbol, f'{hex(addr)} -> {hex(addr+delta-4)}')
-					symbols[symbol] = addr + delta - 4
 		pc += 4
 
-	# (c) encoding pass
+def encode(token_stream, filename='output.bin'):
 	instructions = []
 	pc = 0x0
 	for instr in token_stream:
@@ -274,6 +282,7 @@ def assemble(source):
 		else: # op
 			op = token.upper()
 			enc = 0
+			print("Encoding", op.lower())
 			if op in RegOps._member_names_ + ['SUB'] + MulOps._member_names_: # <op> rd, rs1, rs2
 				rd = parse_reg(instr[1])
 				rs1 = parse_reg(instr[3])
@@ -323,9 +332,11 @@ def assemble(source):
 			elif op in JmpOps._member_names_:
 				rd = parse_reg(instr[1])
 				if op == 'JALR': # imm(reg), i type
-					imm = parse_imm(instr[3])
-					rs1 = parse_reg(instr[5])
-					enc = encode_i_type(imm, rs1, 0x0, rd, 0b1100111)
+					# jalr rd, rs, imm
+					rs = parse_reg(instr[3])
+					imm = parse_imm(instr[5]) & 0xFFF
+					print("Jump:", hex(imm))
+					enc = encode_i_type(imm, rs, 0x0, rd, 0b1100111)
 				else: # label|imm, j type
 					imm = parse_pc_offs(instr[3])
 					enc = encode_j_type(imm, rd, 0b1101111)
@@ -333,7 +344,8 @@ def assemble(source):
 				rd = parse_reg(instr[1])
 				
 				# handle symbol instead of immediate for pseudo expansions?
-				imm = parse_imm(instr[3]) if instr[3][1] == Token.immediate else (symbols[instr[3][0]] >> 12)
+				imm = parse_imm(instr[3]) if instr[3][1] == Token.immediate else (parse_pc_offs(instr[3]) >> 12)
+				imm &= 0xFFFFF
 				opc = 0b0110111	 if op == 'LUI' else 0b0010111
 
 				enc = encode_u_type(imm, rd, opc)
@@ -345,13 +357,36 @@ def assemble(source):
 	print("Symbols:")
 	for s, x in symbols.items():
 		print('\t', s, f'<{hex(x)}>')
+
 	print("Instructions:")
 	for i in instructions:
-		print('\t', f'{i[0]}\t\t', bin(i[1])[2:].zfill(32))
+		print('\t', f'{i[0]}\t\t', bin(i[1]).split('0b')[1].zfill(32))
 
-	with open('output.bin', 'wb') as f:
+	with open(filename, 'wb') as f:
 		for x in instructions:
 			f.write(struct.pack("I", x[1]))
+
+def assemble(source):
+	print("Source:\n", source)
+
+	global symbols
+	symbols = dict()
+	global pc
+	pc = 0x0
+
+	token_stream = lex(source)
+
+	label_pass(token_stream)
+	resolve_pass(token_stream)
+	expansion_pass(token_stream)
+
+	encode(token_stream)
 	
-source = open(sys.argv[1], 'r').read()
-assemble(source)
+
+
+def main():
+	source = open(sys.argv[1], 'r').read()
+	assemble(source)
+
+if __name__	== "__main__":
+	main()
