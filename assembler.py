@@ -44,14 +44,14 @@ def split_immediate(imm):
 
 	return (imm31_12, imm11_0)
 
-def branch_zero(x): # <op> rs1, rs2, imm
+def branch_zero(x, state): # <op> rs1, rs2, imm
 	rs1 = x[1][0]
 	imm = x[3][0]
 	base_op = x[0][0][:-1].lower()
 
-	return [expand_rrx(base_op, rs1, 'x0', imm, imm in symbols)]
+	return [expand_rrx(base_op, rs1, 'x0', imm, imm in state.symbols)]
 
-def li(x): # naive expansion? handles up to 32 bit numbers
+def li(x, state): # naive expansion? handles up to 32 bit numbers
 	# seq = []
 	rd = x[1]
 	# comma = (',', Token.comma)
@@ -64,9 +64,9 @@ def li(x): # naive expansion? handles up to 32 bit numbers
 	# return seq
 	return [lui, addi]
 
-def la(x):
+def la(x, state):
 	rd = x[1][0]
-	addr = symbols[x[3][0]]
+	addr = state.symbols[x[3][0]]
 	addr_h, addr_l = split_immediate(addr)
 
 	addi = expand_rrx("addi", rd, rd, hex(addr_l))
@@ -74,29 +74,29 @@ def la(x):
 
 	return [auipc, addi]
 
-def nop(x):
+def nop(x, state):
 	return [expand_rrx("addi", 'x0', 'x0', '0x0')]
 
-def mv(x):
+def mv(x, state):
 	rd = x[1][0]
 	rs = x[3][0]
 	return [expand_rrx("addi", rd, rs, '0x0')]
 
-def neg(x):
+def neg(x, state):
 	rd = x[1][0]
 	rs = x[3][0]
 	return [expand_rrx("sub", rd, 'x0', rs)]
 
-def call(x):
+def call(x, state):
 	# if < 12 bit offset only use jal
-	offset = parse_pc_offs(x[1])
+	offset = parse_pc_offs(x[1], state)
 	offs_h, offs_l = split_immediate(offset)
 	auipc = expand_ri("auipc", 'x1', hex(offs_h)) # store upper part of target address in x1
 	jalr = expand_rrsi("jalr", 'x1', 'x1', hex(offs_l)) # jump to upper part + lower part of address
 
 	return [auipc, jalr]
 
-def ret(x):
+def ret(x, state):
 	return [expand_rrsi("jalr", 'x0', 'x1', '0')]
 
 class PseudOps(Enum):
@@ -133,10 +133,8 @@ def parse_rsi(x):
 def parse_reg(x):
 	return Regs[x[0]].value
 
-def parse_pc_offs(x):
-	if x[1] == Token.symbol:
-		print(f"\t<{hex(pc)}> Offset: {symbols[x[0]]-pc}")
-	return symbols[x[0]] - pc if x[1] == Token.symbol else parse_imm(x)
+def parse_pc_offs(x, state):
+	return state.symbols[x[0]] - state.pc if x[1] == Token.symbol else parse_imm(x)
 
 def encode_i_type(imm, rs1, func3, rd, opc):
 	return (imm << 20) | (rs1 << 15) | (func3 << 12) | (rd << 7) | opc
@@ -171,6 +169,15 @@ def encode_b_type(imm, rs2, rs1, func3, opc):
 
 def encode_u_type(imm, rd, opc):
 	return (imm << 12) | (rd << 7) | opc
+
+
+class AssemblerState:
+	start_addr = 0x0
+	def __init__(self):
+		self.pc = AssemblerState.start_addr
+		self.symbols = dict()
+	def reset_pc(self):
+		self.pc = AssemblerState.start_addr
 
 def lex(source): # => token stream
 	lines = source.split('\n')[:-1]
@@ -218,62 +225,58 @@ def lex(source): # => token stream
 
 	return token_stream
 
-def label_pass(token_stream):
-	global pc
-	pc = 0x0
+def label_pass(token_stream, state):
+	state.reset_pc()
 	for i, instr in enumerate(token_stream):
 		token = instr[0][0]
 		if token[0] == '.': continue
 		if token[-1] == ':':
-			symbols[token[:-1]] = pc
-		else: pc += 4
+			state.symbols[token[:-1]] = state.pc
+		else: state.pc += 4
 
-def resolve_pass(token_stream):
-	global pc
-	pc = 0x0
+def resolve_pass(token_stream, state):
+	state.reset_pc()
 	print("Resolve pass:")
 	for i, instr in enumerate(token_stream):
 		token = instr[0][0]
 		if token[0] == '.' or token[-1] == ':': continue
 		op = token.lower()
-		print('\t<' + hex(pc) + '>', '\t', token)
+		print('\t<' + hex(state.pc) + '>', '\t', token)
 		if op in list(PseudOps.__members__.keys()):
 			exp_len = pseud_map[PseudOps[op].value][0]
 			delta = (exp_len - 1) * 4
-			for symbol, addr in symbols.items():
-				if addr > pc:
+			for symbol, addr in state.symbols.items():
+				if addr > state.pc:
 					print("\t\tResolving:", symbol, f'{hex(addr)} -> {hex(addr+delta-4)}')
-					symbols[symbol] = addr+delta
-		pc += 4
+					state.symbols[symbol] = addr+delta
+		state.pc += 4
 
 	print("Symbols:")
-	for s, x in symbols.items():
+	for s, x in state.symbols.items():
 		print('\t', s, f'<{hex(x)}>')
 
-def expansion_pass(token_stream):
-	global pc
-	pc = 0x0
+def expansion_pass(token_stream, state):
+	state.reset_pc()
 	print("Expansion pass:")
 	for i, line in enumerate(token_stream):
 		token = line[0][0]
 		if token[0] == '.' or token[-1] == ':': continue
 		if token.lower() not in list(PseudOps.__members__.keys()):
-			print('\t<' + hex(pc) + '>', '\t', token)
+			print('\t<' + hex(state.pc) + '>', '\t', token)
 		else:
 			token_stream.pop(i)
 			idx = PseudOps[token.lower()].value
-			expansion = pseud_map[idx][1](line)
+			expansion = pseud_map[idx][1](line, state)
 			for j, x in enumerate(expansion):
 				token_stream.insert(i+j, x)
 
-			print(f'\t<{hex(pc)}>', '\t', token, '=>', [x[0][0] for x in expansion])
-		pc += 4
+			print(f'\t<{hex(state.pc)}>', '\t', token, '=>', [x[0][0] for x in expansion])
+		state.pc += 4
 
-def encode(token_stream, filename='output.bin'):
+def encode(token_stream, state, filename='output.bin'):
 	instructions = []
-	global pc
-	pc = 0x0
 
+	state.reset_pc()
 	print("Encoding pass:")
 	for instr in token_stream:
 		token = instr[0][0]
@@ -328,7 +331,7 @@ def encode(token_stream, filename='output.bin'):
 			elif op in BrchOps._member_names_: # <op> rs1, rs2, <imm|label>
 				rs1 = parse_reg(instr[1])
 				rs2 = parse_reg(instr[3])
-				imm = parse_pc_offs(instr[5])
+				imm = parse_pc_offs(instr[5], state)
 				func3 = BrchOps[op].value
 
 				enc = encode_b_type(imm, rs2, rs1, func3, 0b1100011)
@@ -339,18 +342,18 @@ def encode(token_stream, filename='output.bin'):
 					rs, imm = parse_rsi(instr[3:])
 					enc = encode_i_type(imm, rs, 0x0, rd, 0b1100111)
 				else: # label|imm, j type
-					imm = parse_pc_offs(instr[3])
+					imm = parse_pc_offs(instr[3], state)
 					enc = encode_j_type(imm, rd, 0b1101111)
 			elif op in UimmOps._member_names_:
 				rd = parse_reg(instr[1])
 				
-				imm = parse_imm(instr[3]) if instr[3][1] == Token.immediate else (parse_pc_offs(instr[3]) >> 12)
+				imm = parse_imm(instr[3]) if instr[3][1] == Token.immediate else (parse_pc_offs(instr[3], state) >> 12)
 				opc = 0b0110111	 if op == 'LUI' else 0b0010111
 				enc = encode_u_type(imm, rd, opc)
 			else:
 				continue
 			instructions.append((op, enc))
-			pc += 4
+			state.pc += 4
 
 
 	print("Instructions:")
@@ -364,18 +367,15 @@ def encode(token_stream, filename='output.bin'):
 def assemble(source):
 	print("Source:\n", source)
 
-	global symbols
-	symbols = dict()
-	global pc
-	pc = 0x0
+	state = AssemblerState()
 
 	token_stream = lex(source)
 
-	label_pass(token_stream)
-	resolve_pass(token_stream)
-	expansion_pass(token_stream)
+	label_pass(token_stream, state)
+	resolve_pass(token_stream, state)
+	expansion_pass(token_stream, state)
 
-	encode(token_stream)
+	encode(token_stream, state)
 
 def main():
 	source = open(sys.argv[1], 'r').read()
