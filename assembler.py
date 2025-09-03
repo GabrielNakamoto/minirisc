@@ -99,16 +99,6 @@ def call(x, state):
 def ret(x, state):
 	return [expand_rrsi("jalr", 'x0', 'x1', '0')]
 
-class PseudOps(Enum):
-	beqz = bnez = bgez = bltz = 0
-	li = 1
-	la = 2
-	mv = 3
-	nop = 4
-	neg = 5
-	call = 6
-	ret = 7
-
 pseud_map = [ # (worst case # of ops, expansion func)
 	(1, branch_zero),
 	(2, li),
@@ -169,7 +159,6 @@ def encode_b_type(imm, rs2, rs1, func3, opc):
 
 def encode_u_type(imm, rd, opc):
 	return (imm << 12) | (rd << 7) | opc
-
 
 class AssemblerState:
 	start_addr = 0x0
@@ -354,7 +343,6 @@ def encode(token_stream, state, filename='output.bin'):
 				continue
 			instructions.append((op, enc))
 			state.pc += 4
-
 
 	print("Instructions:")
 	for i in instructions:

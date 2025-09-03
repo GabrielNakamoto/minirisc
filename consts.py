@@ -3,6 +3,18 @@ from enum import Enum
 
 # https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf
 
+# ----- Pseudo Instructions -----
+
+class PseudOps(Enum):
+	beqz = bnez = bgez = bltz = 0
+	li = 1
+	la = 2
+	mv = 3
+	nop = 4
+	neg = 5
+	call = 6
+	ret = 7
+
 # ----- Extensions -----
 class MulOps(Enum):
 	MUL = 0x0

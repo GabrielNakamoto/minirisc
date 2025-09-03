@@ -24,6 +24,8 @@ Why?: Matmul go fast! With my assembler
 
 ## Todo
 
+[] Robust error handling, source line # + good error messages
+[] Better immediate parsing (negative hex, binary)
 [] More Pseduo-instructions
 [] Assembler directives
 [] Dissasembler / Emulator??
