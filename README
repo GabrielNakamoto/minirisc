@@ -1,4 +1,6 @@
-RISC-V RV32IM Assembler (https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf)
+# river :: RIscV assemblER
+
+RV32IM Instruction Set (https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf)
 
 Goal: Matmul with proper functions and .word array
 Why?: Matmul go fast! With my assembler
@@ -26,6 +28,7 @@ Why?: Matmul go fast! With my assembler
 
 [] Robust error handling, source line # + good error messages
 [] Better immediate parsing (negative hex, binary)
-[] More Pseduo-instructions
+[] Test script + files
+[] More Pseduo-instructions 
 [] Assembler directives
 [] Dissasembler / Emulator??
