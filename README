@@ -5,6 +5,8 @@ RV32IM Instruction Set (https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/not
 Goal: Matmul with proper functions and .word array
 Why?: Matmul go fast! With my assembler
 
+*Set RIVER_DEBUG to true for debug printing
+
 ## How
 
 * Lex input into tokens

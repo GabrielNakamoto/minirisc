@@ -5,6 +5,10 @@ from consts import *
 import string
 import struct
 import sys
+import os
+
+def debug(*args, **kwargs):
+	if os.environ.get("RIVER_DEBUG"): print(*args, **kwargs)
 
 def expand_rrx(op, r1, r2, i, symbol=False):
 	return [
@@ -205,12 +209,12 @@ def lex(source): # => token stream
 			i += 1
 		if len(tokens) > 0 and tokens[0][0] != '#': token_stream.append(tokens)
 	
-	print("Tokens:")
+	debug("Tokens:")
 	for i, x in enumerate(token_stream):
-		print(f'\t{i}:', end='\t')
+		debug(f'\t{i}:', end='\t')
 		for tk in x:
-			print(tk[0], tk[1].name, end='\t')
-		print()
+			debug(tk[0], tk[1].name, end='\t')
+		debug()
 
 	return token_stream
 
@@ -225,33 +229,33 @@ def label_pass(token_stream, state):
 
 def resolve_pass(token_stream, state):
 	state.reset_pc()
-	print("Resolve pass:")
+	debug("Resolve pass:")
 	for i, instr in enumerate(token_stream):
 		token = instr[0][0]
 		if token[0] == '.' or token[-1] == ':': continue
 		op = token.lower()
-		print('\t<' + hex(state.pc) + '>', '\t', token)
+		debug('\t<' + hex(state.pc) + '>', '\t', token)
 		if op in list(PseudOps.__members__.keys()):
 			exp_len = pseud_map[PseudOps[op].value][0]
 			delta = (exp_len - 1) * 4
 			for symbol, addr in state.symbols.items():
 				if addr > state.pc:
-					print("\t\tResolving:", symbol, f'{hex(addr)} -> {hex(addr+delta-4)}')
+					debug("\t\tResolving:", symbol, f'{hex(addr)} -> {hex(addr+delta-4)}')
 					state.symbols[symbol] = addr+delta
 		state.pc += 4
 
-	print("Symbols:")
+	debug("Symbols:")
 	for s, x in state.symbols.items():
-		print('\t', s, f'<{hex(x)}>')
+		debug('\t', s, f'<{hex(x)}>')
 
 def expansion_pass(token_stream, state):
 	state.reset_pc()
-	print("Expansion pass:")
+	debug("Expansion pass:")
 	for i, line in enumerate(token_stream):
 		token = line[0][0]
 		if token[0] == '.' or token[-1] == ':': continue
 		if token.lower() not in list(PseudOps.__members__.keys()):
-			print('\t<' + hex(state.pc) + '>', '\t', token)
+			debug('\t<' + hex(state.pc) + '>', '\t', token)
 		else:
 			token_stream.pop(i)
 			idx = PseudOps[token.lower()].value
@@ -259,14 +263,14 @@ def expansion_pass(token_stream, state):
 			for j, x in enumerate(expansion):
 				token_stream.insert(i+j, x)
 
-			print(f'\t<{hex(state.pc)}>', '\t', token, '=>', [x[0][0] for x in expansion])
+			debug(f'\t<{hex(state.pc)}>', '\t', token, '=>', [x[0][0] for x in expansion])
 		state.pc += 4
 
 def encode(token_stream, state, filename='output.bin'):
 	instructions = []
 
 	state.reset_pc()
-	print("Encoding pass:")
+	debug("Encoding pass:")
 	for instr in token_stream:
 		token = instr[0][0]
 		assert instr[0][1] == Token.symbol
@@ -277,7 +281,7 @@ def encode(token_stream, state, filename='output.bin'):
 		if token[0] == '.':
 			pass
 		else: # op
-			print("\t", ' '.join([str(tk[0]) for tk in instr]))
+			debug("\t", ' '.join([str(tk[0]) for tk in instr]))
 			op = token.upper()
 			enc = 0
 			if op in RegOps._member_names_ + ['SUB'] + MulOps._member_names_: # <op> rd, rs1, rs2
@@ -344,16 +348,16 @@ def encode(token_stream, state, filename='output.bin'):
 			instructions.append((op, enc))
 			state.pc += 4
 
-	print("Instructions:")
+	debug("Instructions:")
 	for i in instructions:
-		print('\t', f'{i[0]}\t\t', bin(i[1]).split('0b')[1].zfill(32))
+		debug('\t', f'{i[0]}\t\t', bin(i[1]).split('0b')[1].zfill(32))
 
 	with open(filename, 'wb') as f:
 		for x in instructions:
 			f.write(struct.pack("I", x[1]))
 
 def assemble(source):
-	print("Source:\n", source)
+	debug("Source:\n", source)
 
 	state = AssemblerState()
 
