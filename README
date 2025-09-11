@@ -41,8 +41,10 @@ Error messages:
 
 ```
 > python3 assembler.py perp_test.s
-perp_test.s:4 :: 'Error calculating symbol offset: multiply_funcs'
-|	call multiply_func
+perp_test.s:5 :: 'Error calculating symbol offset: piffle'
+|	call piffle
 perp_test.s:6 :: 'Error parsing immediate: foo'
 |	li a7 , foo
+perp_test.s:15 :: 'Error parsing register: bar'
+|	div a0 , t0 , bar
 ```
