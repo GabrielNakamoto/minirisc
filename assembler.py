@@ -12,9 +12,9 @@ def debug(*args, **kwargs):
 
 def build_err(e, instr, state):
 	badtk = str(e).split(':')[1].strip()
-	descr = f"\033[1m{state.filename}:{state.ln}\033[0m :: '{e}'\n|\t"
+	descr = f"\033[1m{state.infile}:{state.ln}\033[0m :: '{e}'\n|\t"
 	srcline = " ".join(f"\033[1;31m{tk[0]}\033[0m" if tk[0] == badtk else str(tk[0]) for tk in instr)
-	print(descr, srcline)
+	state.errs.append(descr+srcline)
 	state.failed = 1
 
 def expand_rrx(op, r1, r2, i, symbol=False):
@@ -183,11 +183,17 @@ def encode_u_type(imm, rd, opc):
 
 class AssemblerState:
 	start_addr = 0x0
-	def __init__(self, filename):
+
+	def __init__(self, infile, outfile="output.bin"):
 		self.pc = AssemblerState.start_addr
 		self.symbols = dict()
-		self.filename = filename
+		self.infile = infile
+		self.outfile = outfile
 		self.failed = 0 
+		self.line_nmap = []
+		self.ln = 0
+		self.errs = []
+
 	def reset_pc(self):
 		self.pc = AssemblerState.start_addr
 
@@ -291,7 +297,7 @@ def expansion_pass(token_stream, state):
 			debug(f'\t<{hex(state.pc)}>', '\t', token, '=>', [x[0][0] for x in expansion])
 		state.pc += 4
 
-def encode(token_stream, state, filename='output.bin'):
+def encode(token_stream, state, output='output.bin'):
 	instructions = []
 
 	state.reset_pc()
@@ -376,15 +382,20 @@ def encode(token_stream, state, filename='output.bin'):
 			instructions.append((op, enc))
 			state.pc += 4
 
-	if state.failed: os._exit(1)	
+	if state.failed:
+		for err in state.errs:
+			print(err)
+		os._exit(1)	
 
 	debug("Instructions:")
 	for i in instructions:
 		debug('\t', f'{i[0]}\t\t', bin(i[1]).split('0b')[1].zfill(32))
 
-	with open(filename, 'wb') as f:
+	with open(state.outfile, 'wb') as f:
 		for x in instructions:
 			f.write(struct.pack("I", x[1]))
+
+	print(f"\033[1mriver ::\033[0m Succesfully assembled machine code -> \033[1;32m{state.outfile}\033[0m")
 
 def assemble(source, filename):
 	debug("Source:\n", source)
@@ -393,7 +404,6 @@ def assemble(source, filename):
 
 	token_stream = lex(source)
 
-	state.line_nmap = []
 	for i, x in enumerate(token_stream):
 		state.line_nmap.append(x[0])
 		token_stream[i] = x[1]
