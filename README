@@ -25,12 +25,24 @@ Why?: Matmul go fast! With my assembler
 [x] Register ABI Names
 [x] RV32M Extension
 [x] Basic Pseudo-Instructions: li, la, mv, nop, neg, call, ret, beqz, bnez, bgez, bltz
+[x] Error handling, source line # + error messages
 
 ## Todo
 
-[] Robust error handling, source line # + good error messages
 [] Better immediate parsing (negative hex, binary)
 [] Test script + files
 [] More Pseduo-instructions 
 [] Assembler directives
 [] Dissasembler / Emulator??
+
+## Examples
+
+Error messages:
+
+```
+> python3 assembler.py perp_test.s
+perp_test.s:4 :: 'Error calculating symbol offset: multiply_funcs'
+|	call multiply_func
+perp_test.s:6 :: 'Error parsing immediate: foo'
+|	li a7 , foo
+```
