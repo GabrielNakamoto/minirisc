@@ -3,8 +3,14 @@ from enum import Enum
 
 # https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf
 
-# ----- Pseudo Instructions -----
+# ----- Exception Classes -----
+class ArgException(Exception):
+	pass
 
+class ParseException(Exception):
+	pass
+
+# ----- Pseudo Instructions -----
 class PseudOps(Enum):
 	beqz = bnez = bgez = bltz = 0
 	li = 1

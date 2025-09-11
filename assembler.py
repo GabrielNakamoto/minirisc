@@ -10,13 +10,6 @@ import os
 def debug(*args, **kwargs):
 	if os.environ.get("RIVER_DEBUG"): print(*args, **kwargs)
 
-def build_err(e, instr, state):
-	badtk = str(e).split(':')[1].strip()
-	descr = f"\033[1m{state.infile}:{state.ln}\033[0m :: '{e}'\n|\t"
-	srcline = " ".join(f"\033[1;31m{tk[0]}\033[0m" if tk[0] == badtk else str(tk[0]) for tk in instr)
-	state.errs.append(descr+srcline)
-	state.failed = 1
-
 def expand_rrx(op, r1, r2, i, symbol=False):
 	return [
 		(op, Token.symbol),
@@ -123,7 +116,7 @@ def parse_imm(x):
 	try:
 		return int(x[0], 16) if len(x[0]) > 1 and x[0][1].lower() == 'x' else int(x[0])
 	except Exception as e:
-		raise Exception(f"Error parsing immediate: {x[0]}")
+		raise ParseException(f"Error parsing immediate: {x[0]}")
 
 def parse_rsi(x): 
 	# Common: rs, imm | imm(rs)
@@ -136,14 +129,14 @@ def parse_reg(x):
 	try:
 		return Regs[x[0]].value
 	except Exception as e:
-		raise Exception(f"Error parsing register: {x[0]}")
+		raise ParseException(f"Error parsing register: {x[0]}")
 
 def parse_pc_offs(x, state):
 	if x[1] == Token.symbol:
 		try:
 			return state.symbols[x[0]] - state.pc
 		except Exception as e:
-			raise Exception(f"Error calculating symbol offset: {x[0]}")
+			raise ParseException(f"Error calculating symbol offset: {x[0]}")
 	else:
 		parse_imm(x)
 
@@ -196,6 +189,26 @@ class AssemblerState:
 
 	def reset_pc(self):
 		self.pc = AssemblerState.start_addr
+
+	def assert_args(self, n, instr, proper):
+		if len(instr) == n: return
+
+		raise ArgException(f"Error matching arguments, should be {n} not {len(instr)}\n|\t\033[1mTemplate args:\033[0m {proper}")
+
+	def build_arg_err(self, e, instr):
+		descr = f"\033[1m{self.infile}:{self.ln}\033[0m :: '{e}'\n|\t"
+		srcline = "\033[1;31m" + " ".join(str(tk[0]) for tk in instr) + "\033[0m"
+
+		self.errs.append(descr+srcline)
+		self.failed = 1
+
+	def build_parse_err(self, e, instr):
+		badtk = str(e).split(':')[1].strip()
+		descr = f"\033[1m{self.infile}:{self.ln}\033[0m :: '{e}'\n|\t"
+		srcline = " ".join(f"\033[1;31m{tk[0]}\033[0m" if tk[0] == badtk else str(tk[0]) for tk in instr)
+
+		self.errs.append(descr+srcline)
+		self.failed = 1
 
 def lex(source): # => token stream
 	lines = source.split('\n')[:-1]
@@ -288,8 +301,8 @@ def expansion_pass(token_stream, state):
 			idx = PseudOps[token.lower()].value
 			try:
 				expansion = pseud_map[idx][1](line, state)
-			except Exception as e:
-				build_err(e, line, state)
+			except ParseException as e:
+				state.build_parse_err(e, line)
 			for j, x in enumerate(expansion):
 				token_stream.insert(i+j, x)
 				state.line_nmap.insert(i+j, ln)
@@ -318,9 +331,12 @@ def encode(token_stream, state, output='output.bin'):
 			enc = 0
 			try:
 				if op in RegOps._member_names_ + ['SUB'] + MulOps._member_names_: # <op> rd, rs1, rs2
+					state.assert_args(6, instr, f"{op.lower()} rd, rs1, rs2")
+
 					rd = parse_reg(instr[1])
 					rs1 = parse_reg(instr[3])
 					rs2 = parse_reg(instr[5])
+
 					if op in MulOps._member_names_:
 						func3 = MulOps[op].value
 						func7 = 0x01
@@ -329,6 +345,8 @@ def encode(token_stream, state, output='output.bin'):
 						func7 = 0x20 if op in ['SUB', 'SRA'] else 0x00
 					enc = encode_r_type(func7, rs2, rs1, func3, rd, 0b0110011)
 				elif op in ImmOps._member_names_ + ['SRAI']:
+					state.assert_args(6, instr, f"{op.lower()} rd, rs, imm")
+
 					rd = parse_reg(instr[1])
 					rs1 = parse_reg(instr[3])
 					imm = parse_imm(instr[5])
@@ -339,22 +357,30 @@ def encode(token_stream, state, output='output.bin'):
 						if op == "SRAI": imm |= 0x20 << 5
 
 					enc = encode_i_type(imm, rs1, func3, rd, 0b0010011)
-				elif op in LdOps._member_names_: # <op> rd, imm(rs1)
+				elif op in LdOps._member_names_:
+					state.assert_args(7, instr, f"{op.lower()} rd, imm(rs1)")
+
 					rd = parse_reg(instr[1])
 					rs1, imm = parse_rsi(instr[3:])
 					func3 = LdOps[op].value
 
 					enc = encode_i_type(imm, rs1, func3, rd, 0b0000011)
-				elif op in StrOps._member_names_: # <op> rs2, imm(rs1)
+				elif op in StrOps._member_names_:
+					state.assert_args(7, instr, f"{op.lower()} rs2, imm(rs1)")
+
 					rs2 = parse_reg(instr[1])
 					rs1, imm = parse_rsi(instr[3:])
 					func3 = StrOps[op].value
 
 					enc = encode_s_type(imm, rs2, rs1, func3, 0b0100011)
 				elif op in EnvOps._member_names_ + ['EBREAK']:
+					state.assert_args(1, instr, f"{op.lower()}")
+
 					imm = 0x0 if op == 'ECALL' else 0x1
 					enc = encode_i_type(imm, 0, 0x0, 0, 0b1110011)
-				elif op in BrchOps._member_names_: # <op> rs1, rs2, <imm|label>
+				elif op in BrchOps._member_names_:
+					state.assert_args(6, instr, f"{op.lower()} rs1, rs2, <imm|label>")
+
 					rs1 = parse_reg(instr[1])
 					rs2 = parse_reg(instr[3])
 					imm = parse_pc_offs(instr[5], state)
@@ -364,27 +390,37 @@ def encode(token_stream, state, output='output.bin'):
 				elif op in JmpOps._member_names_:
 					rd = parse_reg(instr[1])
 					if op == 'JALR':
+						state.assert_args(7, instr, f"{op.lower()} rd, imm(rs1)")
+
 						rs, imm = parse_rsi(instr[3:])
 						enc = encode_i_type(imm, rs, 0x0, rd, 0b1100111)
 					else: 
+						state.assert_args(4, instr, f"{op.lower()} rd, imm")
+
 						imm = parse_pc_offs(instr[3], state)
 						enc = encode_j_type(imm, rd, 0b1101111)
 				elif op in UimmOps._member_names_:
+					state.assert_args(4, instr, f"{op.lower()} rd, imm")
+
 					rd = parse_reg(instr[1])
-					
 					imm = parse_imm(instr[3]) if instr[3][1] == Token.immediate else (parse_pc_offs(instr[3], state) >> 12)
+
 					opc = 0b0110111	 if op == 'LUI' else 0b0010111
 					enc = encode_u_type(imm, rd, opc)
 				else:
 					continue
-			except Exception as e:
-				build_err(e, instr, state)
+			except ParseException as e:
+				state.build_parse_err(e, instr)
+			except ArgException as e:
+				state.build_arg_err(e, instr)
+
 			instructions.append((op, enc))
 			state.pc += 4
 
 	if state.failed:
 		for err in state.errs:
 			print(err)
+		sys.stdout.flush()
 		os._exit(1)	
 
 	debug("Instructions:")
@@ -415,6 +451,9 @@ def assemble(source, filename):
 	encode(token_stream, state)
 
 def main():
+	if len(sys.argv) < 2:
+		print(f"Usage: river <input file>")
+		os._exit(1)
 	source = open(sys.argv[1], 'r').read()
 	assemble(source, sys.argv[1])
 
