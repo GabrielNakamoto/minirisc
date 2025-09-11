@@ -2,10 +2,7 @@
 
 RV32IM Instruction Set (https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf)
 
-Goal: Matmul with proper functions and .word array
-Why?: Matmul go fast! With my assembler
-
-*Set RIVER_DEBUG to true for debug printing
+*Note: Set RIVER_DEBUG=True for debug printing
 
 ## How
 
