@@ -1,4 +1,5 @@
 from enum import Enum
+from dataclasses import dataclass
 
 
 # https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf
@@ -20,6 +21,7 @@ class PseudOps(Enum):
 	neg = 5
 	call = 6
 	ret = 7
+	j = 8
 
 # ----- Extensions -----
 class MulOps(Enum):
@@ -85,12 +87,20 @@ class UimmOps(Enum): # values dont matter
 	AUIPC = 0x1
 	
 # ----- Token types -----
-class Token(Enum):
+class Kind(Enum):
 	symbol = 9
 	comma = 1
 	immediate = 2
 	lparen = 3
 	rparen = 4
+
+@dataclass
+class Token:
+	lxm: str
+	kind: Kind
+
+	def __repr__(self):
+		return f"Token({self.lxm}, {self.kind})"
 
 # ----- Register mnemonics ------
 class Regs(Enum):
