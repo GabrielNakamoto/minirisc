@@ -282,18 +282,6 @@ def label_pass(token_stream, state):
 	debug("Directives")
 	for d, _ in state.directives:
 		debug('\t', d)
-	
-def directives_pass(state):
-	for d, instr in state.directives:
-		if d == 'global':
-			# TODO: error handling
-			symbol = instr[1].lxm
-			state.symbol_vis[symbol] = 1 # STB_GLOBAL
-		elif d == 'section':
-			state.sections.append(instr[1].lxm)
-
-	debug("Sections")
-	for s in state.sections: debug('\t', s)
 
 def resolve_pass(token_stream, state):
 	state.reset_pc()
@@ -473,7 +461,6 @@ def assemble(source, filename):
 		token_stream[i] = x[1]
 
 	label_pass(token_stream, state)
-	directives_pass(state)
 	resolve_pass(token_stream, state)
 	expansion_pass(token_stream, state)
 
