@@ -1,7 +1,6 @@
 # Mini RISC-V 32  Assembler, 2025 <gabriel@nakamoto.ca>
 
 from enum import Enum
-from elf import *
 from consts import *
 import string
 import struct

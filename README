@@ -21,7 +21,7 @@ RV32IM Instruction Set (https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/not
 [x] Labels
 [x] Register ABI Names
 [x] RV32M Extension
-[x] Basic Pseudo-Instructions: li, la, mv, nop, neg, call, ret, beqz, bnez, bgez, bltz
+[x] Basic Pseudo-Instructions: j, li, la, mv, nop, neg, call, ret, beqz, bnez, bgez, bltz
 [x] Error handling, source line # + error messages
 
 ## Todo
