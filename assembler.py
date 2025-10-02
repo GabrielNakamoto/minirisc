@@ -78,8 +78,11 @@ def la(x, state):
 
 def call(x, state):
 	# if < 12 bit offset only use jal
+	state.pc += 4
 	offset = parse_pc_offs(x[1], state)
 	offs_h, offs_l = split_immediate(offset)
+	state.pc -= 4
+
 	auipc = expand_ri("auipc", 'x1', hex(offs_h)) # store upper part of target address in x1
 	jalr = expand_rrsi("jalr", 'x1', 'x1', hex(offs_l)) # jump to upper part + lower part of address
 
@@ -265,19 +268,29 @@ def lex(source): # => token stream
 
 def label_pass(token_stream, state):
 	state.reset_pc()
+	stale = []
 	for i, instr in enumerate(token_stream):
 		token = instr[0].lxm
 		if token[0] == '.':
 			state.directives.append((token[1:], instr))
+			stale.append(i)
 			continue
 		if token[-1] == ':':
+			debug("Found symbol:", token[:-1], ", pc:", state.pc)
 			state.symbols[token[:-1]] = state.pc
 			state.symbol_vis[token[:-1]] = 0 # STB_LOCAL
 			token_stream[i]=token_stream[i][1:] # remove label from token line
 			if len(token_stream[i]) == 0: # remove stale instruction
-				token_stream.pop(i)
-				state.line_nmap.pop(i)
-		else: state.pc += 4
+				stale.append(i)
+		else:
+			state.pc += 4
+	# Better way of doing this?
+	for i in reversed(stale):
+		token_stream.pop(i)
+		state.line_nmap.pop(i)
+	debug("Trimmed tokens:")
+	for x in token_stream:
+		debug('\t', x[0].lxm)
 	debug("Directives")
 	for d, _ in state.directives:
 		debug('\t', d)
@@ -295,8 +308,9 @@ def resolve_pass(token_stream, state):
 			delta = (exp_len - 1) * 4
 			for symbol, addr in state.symbols.items():
 				if addr > state.pc:
-					debug("\t\tResolving:", symbol, f'{hex(addr)} -> {hex(addr+delta-4)}')
+					debug("\t\tResolving:", symbol, f'{hex(addr)} -> {hex(addr+delta)}')
 					state.symbols[symbol] = addr+delta
+			state.pc += delta
 		state.pc += 4
 
 	debug("Symbols:")
@@ -316,6 +330,7 @@ def expansion_pass(token_stream, state):
 			ln = state.line_nmap.pop(i)
 			state.ln = ln
 			idx = PseudOps[token.lower()].value
+			# state.pc += (pseud_map[idx][0]-1) * 4
 			try:
 				expansion = pseud_map[idx][1](line, state)
 			except ParseException as e:
@@ -327,7 +342,6 @@ def expansion_pass(token_stream, state):
 			for j, x in enumerate(expansion):
 				token_stream.insert(i+j, x)
 				state.line_nmap.insert(i+j, ln)
-
 			debug(f'\t<{hex(state.pc)}>', '\t', token, '=>', [x[0].lxm for x in expansion])
 		state.pc += 4
 
@@ -343,7 +357,10 @@ def encode(token_stream, state):
 
 		if token[0] == '.': pass
 		else: # op
-			debug("\t", ' '.join([str(tk.lxm) for tk in instr]))
+			for s, o in state.symbols.items():
+				if o == state.pc:
+					debug(s+':')
+			debug(f"\t<{hex(state.pc)}>\t", ' '.join([str(tk.lxm) for tk in instr]))
 			op = token.upper()
 			enc = 0
 			try:
@@ -440,16 +457,18 @@ def encode(token_stream, state):
 		sys.stdout.flush()
 		os._exit(1)	
 
+	"""
 	debug("Instructions:")
 	for i in instructions:
 		debug('\t', f'{i[0]}\t\t', bin(i[1]).split('0b')[1].zfill(32))
+	"""
 
 	code = b''
 	for x in instructions: code += struct.pack("I", x[1])
 	return code
 
 def assemble(source, filename):
-	debug("Source:\n", source)
+	# debug("Source:\n", source)
 
 	state = AssemblerState(filename)
 
